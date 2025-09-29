@@ -1,5 +1,6 @@
 import pygame
 import chess
+import os
 
 # --- Constants ---
 # Screen dimensions
@@ -28,11 +29,13 @@ class ChessGUI:
         self.clock = pygame.time.Clock()
         self.board = board
         # A larger font is needed for the unicode characters to be visible
-        # We specify a font that is likely to have the chess characters
+        # Load the font from the bundled assets folder
+        font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
         try:
-            self.font = pygame.font.SysFont("dejavusans", 72)
+            self.font = pygame.font.Font(font_path, 72)
         except pygame.error:
-            # Fallback to the default font if dejavusans is not available
+            # Fallback to the default font if the bundled font is missing for some reason
+            print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
 
     def draw_board(self):
