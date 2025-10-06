@@ -33,10 +33,12 @@ class ChessGUI:
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
         try:
             self.font = pygame.font.Font(font_path, 72)
+            self.game_over_font = pygame.font.Font(font_path, 50)
         except pygame.error:
             # Fallback to the default font if the bundled font is missing for some reason
             print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
+            self.game_over_font = pygame.font.SysFont(None, 60)
 
     def draw_board(self):
         """Draws the chessboard squares."""
@@ -58,6 +60,29 @@ class ChessGUI:
                     text = self.font.render(piece_symbol, True, color)
                     text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
+
+    def draw_game_over(self, result_str):
+        """Draws a game over message on the screen."""
+        # Create a semi-transparent surface
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))  # Black with 50% transparency
+
+        # Determine the message
+        if result_str == "1-0":
+            message = "White wins!"
+        elif result_str == "0-1":
+            message = "Black wins!"
+        elif result_str == "1/2-1/2":
+            message = "It's a Draw!"
+        else:
+            message = "Game Over" # Fallback
+
+        text_surface = self.game_over_font.render(message, True, WHITE_COLOR)
+        text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+
+        # Blit the overlay and the text
+        self.screen.blit(overlay, (0, 0))
+        self.screen.blit(text_surface, text_rect)
 
     def run(self):
         """Main loop for the GUI."""

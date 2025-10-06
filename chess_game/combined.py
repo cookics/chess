@@ -66,16 +66,24 @@ def main():
                 print(f"\nInvalid move format: '{move_input}'. Please use SAN or UCI notation.")
 
     # Game over
-    gui_instance.draw_board()
-    gui_instance.draw_pieces()
-    pygame.display.flip()
-
-    print("\n--- Game Over ---")
     result = board.result()
+    print("\n--- Game Over ---")
     print(f"Result: {result}")
 
-    # Wait for a moment before closing
-    pygame.time.wait(3000)
+    # Update the GUI to show the final board and the game over message
+    gui_instance.draw_board()
+    gui_instance.draw_pieces()
+    gui_instance.draw_game_over(result)
+    pygame.display.flip()
+
+    # Wait for the user to close the window
+    game_over_running = True
+    while game_over_running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                game_over_running = False
+        pygame.time.wait(100) # prevent high CPU usage
+
     pygame.quit()
 
 if __name__ == "__main__":
