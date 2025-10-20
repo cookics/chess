@@ -1,6 +1,8 @@
 import pygame
 import chess
 import os
+import subprocess
+import sys
 
 # --- Constants ---
 # Screen dimensions
@@ -169,9 +171,35 @@ class ChessGUI:
         pygame.quit()
 
 def main():
+    # Start the CLI in a new terminal window
+    try:
+        # The command depends on the operating system
+        if sys.platform.startswith('win'):
+            cli_process = subprocess.Popen(['cmd.exe', '/c', 'python -m chess_game.cli'], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        elif sys.platform.startswith('darwin'): # macOS
+            cli_process = subprocess.Popen(['open', '-a', 'Terminal', '-n', sys.executable, '-m', 'chess_game.cli'])
+        else: # Linux and other Unix-like systems
+            # Try to find a common terminal emulator. This might need to be adjusted depending on the user's setup.
+            terminal_emulator = 'x-terminal-emulator'
+            try:
+                cli_process = subprocess.Popen([terminal_emulator, '-e', f'{sys.executable} -m chess_game.cli'])
+            except FileNotFoundError:
+                print("Could not find a default terminal emulator. Please run the CLI manually.")
+                cli_process = None
+    except Exception as e:
+        print(f"Failed to start CLI: {e}")
+        cli_process = None
+
     board = chess.Board()
     gui = ChessGUI(board)
-    gui.run()
+
+    try:
+        gui.run()
+    finally:
+        # Ensure the CLI process is terminated when the GUI closes
+        if cli_process:
+            cli_process.terminate()
+            cli_process.wait()
 
 if __name__ == "__main__":
     main()
