@@ -97,6 +97,7 @@ class ChessGUI:
         self.board = board
         self.selected_square = None
         self.legal_moves_for_selected_piece = []
+        self.game_over_message = None
         # A larger font is needed for the unicode characters to be visible
         # Load the font from the bundled assets folder
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
@@ -193,6 +194,8 @@ class ChessGUI:
             # Also check for promotion
             if move in self.board.legal_moves:
                 self.board.push(move)
+                if self.timer:
+                    self.timer.switch_turn()
                 self.selected_square = None
                 self.legal_moves_for_selected_piece = []
                 return
@@ -210,22 +213,12 @@ class ChessGUI:
             self.legal_moves_for_selected_piece = []
 
 
-    def draw_game_over(self, result_str):
+    def draw_game_over(self, message):
         """Draws a game over message on the screen."""
         # Create a semi-transparent surface to dim the whole window
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 128))  # Black with 50% transparency
         self.screen.blit(overlay, (0, 0))
-
-        # Determine the message based on the game result
-        if result_str == "1-0":
-            message = "White wins!"
-        elif result_str == "0-1":
-            message = "Black wins!"
-        elif result_str == "1/2-1/2":
-            message = "It's a Draw!"
-        else:
-            message = "Game Over" # Fallback for other cases
 
         # Render the text and center it on the board
         text_surface = self.game_over_font.render(message, True, WHITE_COLOR)
@@ -246,8 +239,8 @@ class ChessGUI:
             if evaluation['type'] == 'cp':
                 # Map centipawn advantage to a value between -1000 and 1000 for the bar
                 eval_value = max(-1000, min(1000, evaluation['value']))
-                # Calculate the height of the white bar
-                white_height = BOARD_HEIGHT // 2 - (eval_value / 1000) * (BOARD_HEIGHT // 2)
+                # Calculate the height of the white bar. A positive eval is good for white.
+                white_height = (BOARD_HEIGHT / 2) * (1 + eval_value / 1000)
                 white_rect = pygame.Rect(0, INFO_PANEL_HEIGHT, EVAL_BAR_WIDTH, white_height)
                 black_rect = pygame.Rect(0, INFO_PANEL_HEIGHT + white_height, EVAL_BAR_WIDTH, BOARD_HEIGHT - white_height)
                 pygame.draw.rect(self.screen, WHITE_COLOR, white_rect)
@@ -257,11 +250,17 @@ class ChessGUI:
         """Main loop for the GUI, now with interaction."""
         running = True
         while running:
+            # Check for timeout
+            if self.timer and not self.board.is_game_over() and self.game_over_message is None:
+                if self.timer.get_time_left(self.board.turn) <= 0:
+                    winner = "Black" if self.board.turn == chess.WHITE else "White"
+                    self.game_over_message = f"{winner} wins by timeout!"
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if not self.board.is_game_over():
+                    if not self.board.is_game_over() and self.game_over_message is None:
                         self.handle_mouse_click(pygame.mouse.get_pos())
                         self.update_stockfish_position()
 
@@ -272,8 +271,19 @@ class ChessGUI:
             self.draw_game_info()
             self.draw_evaluation_bar()
 
-            if self.board.is_game_over():
-                self.draw_game_over(self.board.result())
+            if self.game_over_message:
+                self.draw_game_over(self.game_over_message)
+            elif self.board.is_game_over():
+                result_str = self.board.result()
+                if result_str == "1-0":
+                    message = "White wins!"
+                elif result_str == "0-1":
+                    message = "Black wins!"
+                elif result_str == "1/2-1/2":
+                    message = "It's a Draw!"
+                else:
+                    message = "Game Over"
+                self.draw_game_over(message)
 
             pygame.display.flip()
             self.clock.tick(60)
