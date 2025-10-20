@@ -4,13 +4,17 @@ import os
 import subprocess
 import sys
 import time
+from stockfish import Stockfish
 
 # --- Constants ---
 # Screen dimensions
-WIDTH = 512
-HEIGHT = 512
+WIDTH = 600
+EVAL_BAR_WIDTH = 40
+INFO_PANEL_HEIGHT = 50
+BOARD_HEIGHT = 512
+HEIGHT = BOARD_HEIGHT + 2 * INFO_PANEL_HEIGHT # Window height
 # Board dimensions are the same as screen dimensions
-SQUARE_SIZE = WIDTH // 8
+SQUARE_SIZE = (WIDTH - EVAL_BAR_WIDTH) // 8
 
 # Colors
 WHITE_COLOR = (255, 255, 255)
@@ -83,9 +87,10 @@ def calculate_material_advantage(board):
     return white_material - black_material
 
 class ChessGUI:
-    def __init__(self, board, timer=None):
+    def __init__(self, board, stockfish, timer=None):
         pygame.init()
         self.timer = timer
+        self.stockfish = stockfish
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
         self.clock = pygame.time.Clock()
@@ -108,8 +113,12 @@ class ChessGUI:
 
     def pixel_to_square(self, pos):
         """Converts a pixel position to a chess square index."""
-        col = pos[0] // SQUARE_SIZE
-        row = pos[1] // SQUARE_SIZE
+        if not (INFO_PANEL_HEIGHT <= pos[1] < HEIGHT - INFO_PANEL_HEIGHT):
+            return None
+        if not (EVAL_BAR_WIDTH <= pos[0] < WIDTH):
+            return None
+        col = (pos[0] - EVAL_BAR_WIDTH) // SQUARE_SIZE
+        row = (pos[1] - INFO_PANEL_HEIGHT) // SQUARE_SIZE
         return chess.square(col, 7 - row)
 
     def draw_board(self):
@@ -117,7 +126,7 @@ class ChessGUI:
         for row in range(8):
             for col in range(8):
                 color = LIGHT_SQUARE if (row + col) % 2 == 0 else DARK_SQUARE
-                pygame.draw.rect(self.screen, color, (col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
+                pygame.draw.rect(self.screen, color, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
 
     def draw_highlights(self):
         """Draws highlights for the selected piece and its legal moves."""
@@ -128,57 +137,51 @@ class ChessGUI:
             # Use a separate surface for transparency
             highlight_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             highlight_surface.fill(HIGHLIGHT_COLOR)
-            self.screen.blit(highlight_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+            self.screen.blit(highlight_surface, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE))
 
         # Draw dots for legal moves
         for move in self.legal_moves_for_selected_piece:
             col = chess.square_file(move.to_square)
             row = 7 - chess.square_rank(move.to_square)
-            center_x = col * SQUARE_SIZE + SQUARE_SIZE // 2
-            center_y = row * SQUARE_SIZE + SQUARE_SIZE // 2
             # Use a separate surface for transparency
             dot_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             pygame.draw.circle(dot_surface, LEGAL_MOVE_DOT_COLOR, (SQUARE_SIZE//2, SQUARE_SIZE//2), SQUARE_SIZE // 6)
-            self.screen.blit(dot_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
-
+            self.screen.blit(dot_surface, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE))
 
     def draw_pieces(self):
         """Draws the pieces on the board using Unicode characters."""
         for row in range(8):
             for col in range(8):
-                square = chess.square(col, 7 - row)  # chess.square maps col, row to 0-63 index
+                square = chess.square(col, 7 - row)
                 piece = self.board.piece_at(square)
                 if piece:
                     piece_symbol = UNICODE_PIECES[piece.symbol()]
-                    # We'll draw all pieces in black for better visibility on both light and dark squares
                     color = BLACK_COLOR
                     text = self.font.render(piece_symbol, True, color)
-                    text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
+                    text_rect = text.get_rect(center=(EVAL_BAR_WIDTH + col * SQUARE_SIZE + SQUARE_SIZE // 2, INFO_PANEL_HEIGHT + row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
 
     def draw_game_info(self):
-        """Draws the timer and material advantage at the top and bottom of the screen."""
-        # Create a black bar for the top and bottom info
-        info_bar_height = 30
-        top_bar_rect = pygame.Rect(0, 0, WIDTH, info_bar_height)
-        bottom_bar_rect = pygame.Rect(0, HEIGHT - info_bar_height, WIDTH, info_bar_height)
-        pygame.draw.rect(self.screen, BLACK_COLOR, top_bar_rect)
-        pygame.draw.rect(self.screen, BLACK_COLOR, bottom_bar_rect)
+        """Draws the timer and material advantage in the top and bottom panels."""
+        self.screen.fill(BLACK_COLOR, pygame.Rect(0, 0, WIDTH, INFO_PANEL_HEIGHT))
+        self.screen.fill(BLACK_COLOR, pygame.Rect(0, HEIGHT - INFO_PANEL_HEIGHT, WIDTH, INFO_PANEL_HEIGHT))
 
-        # Timer display
+        # Timer display in the top panel
         if self.timer:
             timer_text = self.timer.get_time_display()
             timer_surface = self.info_font.render(timer_text, True, WHITE_COLOR)
-            timer_rect = timer_surface.get_rect(center=(WIDTH // 2, info_bar_height // 2))
+            timer_rect = timer_surface.get_rect(center=(WIDTH // 2, INFO_PANEL_HEIGHT // 2))
             self.screen.blit(timer_surface, timer_rect)
 
-        # Material advantage display
+        # Material advantage display in the bottom panel
         advantage = calculate_material_advantage(self.board)
-        if advantage != 0:
+        if advantage == 0:
+            adv_text = "Material is even"
+        else:
             adv_text = f"Advantage: +{abs(advantage)} for {'White' if advantage > 0 else 'Black'}"
-            adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
-            adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - info_bar_height // 2))
-            self.screen.blit(adv_surface, adv_rect)
+        adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
+        adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - INFO_PANEL_HEIGHT // 2))
+        self.screen.blit(adv_surface, adv_rect)
 
     def handle_mouse_click(self, pos):
         """Handles a mouse click event to select or move a piece."""
@@ -209,11 +212,12 @@ class ChessGUI:
 
     def draw_game_over(self, result_str):
         """Draws a game over message on the screen."""
-        # Create a semi-transparent surface
+        # Create a semi-transparent surface to dim the whole window
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 128))  # Black with 50% transparency
+        self.screen.blit(overlay, (0, 0))
 
-        # Determine the message
+        # Determine the message based on the game result
         if result_str == "1-0":
             message = "White wins!"
         elif result_str == "0-1":
@@ -221,14 +225,33 @@ class ChessGUI:
         elif result_str == "1/2-1/2":
             message = "It's a Draw!"
         else:
-            message = "Game Over" # Fallback
+            message = "Game Over" # Fallback for other cases
 
+        # Render the text and center it on the board
         text_surface = self.game_over_font.render(message, True, WHITE_COLOR)
         text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-
-        # Blit the overlay and the text
-        self.screen.blit(overlay, (0, 0))
         self.screen.blit(text_surface, text_rect)
+
+    def update_stockfish_position(self):
+        """Update the Stockfish engine with the current board position."""
+        if self.stockfish.is_fen_valid(self.board.fen()):
+            self.stockfish.set_fen_position(self.board.fen())
+        else:
+            print("Error: Invalid FEN")
+
+    def draw_evaluation_bar(self):
+        """Draws the Stockfish evaluation bar."""
+        if self.stockfish:
+            evaluation = self.stockfish.get_evaluation()
+            if evaluation['type'] == 'cp':
+                # Map centipawn advantage to a value between -1000 and 1000 for the bar
+                eval_value = max(-1000, min(1000, evaluation['value']))
+                # Calculate the height of the white bar
+                white_height = BOARD_HEIGHT // 2 - (eval_value / 1000) * (BOARD_HEIGHT // 2)
+                white_rect = pygame.Rect(0, INFO_PANEL_HEIGHT, EVAL_BAR_WIDTH, white_height)
+                black_rect = pygame.Rect(0, INFO_PANEL_HEIGHT + white_height, EVAL_BAR_WIDTH, BOARD_HEIGHT - white_height)
+                pygame.draw.rect(self.screen, WHITE_COLOR, white_rect)
+                pygame.draw.rect(self.screen, BLACK_COLOR, black_rect)
 
     def run(self):
         """Main loop for the GUI, now with interaction."""
@@ -240,12 +263,14 @@ class ChessGUI:
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if not self.board.is_game_over():
                         self.handle_mouse_click(pygame.mouse.get_pos())
+                        self.update_stockfish_position()
 
             # Drawing order: board, then highlights, then pieces
             self.draw_board()
             self.draw_highlights()
             self.draw_pieces()
             self.draw_game_info()
+            self.draw_evaluation_bar()
 
             if self.board.is_game_over():
                 self.draw_game_over(self.board.result())
@@ -257,33 +282,40 @@ class ChessGUI:
 
 def main():
     # Start the CLI in a new terminal window
+    cli_process = None
     try:
-        # The command depends on the operating system
         if sys.platform.startswith('win'):
             cli_process = subprocess.Popen(['cmd.exe', '/c', 'python -m chess_game.cli'], creationflags=subprocess.CREATE_NEW_CONSOLE)
-        elif sys.platform.startswith('darwin'): # macOS
+        elif sys.platform.startswith('darwin'):
             cli_process = subprocess.Popen(['open', '-a', 'Terminal', '-n', sys.executable, '-m', 'chess_game.cli'])
-        else: # Linux and other Unix-like systems
-            # Try to find a common terminal emulator. This might need to be adjusted depending on the user's setup.
+        else:
             terminal_emulator = 'x-terminal-emulator'
             try:
                 cli_process = subprocess.Popen([terminal_emulator, '-e', f'{sys.executable} -m chess_game.cli'])
             except FileNotFoundError:
                 print("Could not find a default terminal emulator. Please run the CLI manually.")
-                cli_process = None
     except Exception as e:
         print(f"Failed to start CLI: {e}")
-        cli_process = None
+
+    # Initialize Stockfish
+    stockfish = None
+    try:
+        stockfish = Stockfish()
+    except (FileNotFoundError, OSError):
+        print("Stockfish engine not found. Please install it and ensure it's in your PATH,")
+        print("or specify the path in the config.py file.")
+        # The GUI will run without the evaluation bar
+    except Exception as e:
+        print(f"An error occurred while initializing Stockfish: {e}")
 
     board = chess.Board()
     timer = ChessTimer(600)  # 10 minutes per side
     timer.start_turn()
-    gui = ChessGUI(board, timer)
+    gui = ChessGUI(board, stockfish, timer)
 
     try:
         gui.run()
     finally:
-        # Ensure the CLI process is terminated when the GUI closes
         if cli_process:
             cli_process.terminate()
             cli_process.wait()
