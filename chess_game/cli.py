@@ -137,6 +137,8 @@ def print_board(board):
         print(f"White has a material advantage of +{advantage}")
     elif advantage < 0:
         print(f"Black has a material advantage of +{-advantage}")
+    else:
+        print("Material is even.")
     print("  a b c d e f g h")
     print(" +-+-+-+-+-+-+-+-+")
     board_str = str(board)
