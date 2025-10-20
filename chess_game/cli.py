@@ -83,10 +83,60 @@ def load_game(filename="chess_save.pkl"):
         print(f"Error loading game: {e}")
         return None, None
 
+UNICODE_PIECES = {
+    'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔',
+    'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
+}
+
+PIECE_VALUES = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+}
+
+def calculate_material_advantage(board):
+    """Calculates the material advantage for each side."""
+    white_material = sum(len(board.pieces(pt, chess.WHITE)) * val for pt, val in PIECE_VALUES.items())
+    black_material = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in PIECE_VALUES.items())
+    return white_material - black_material
+
+def get_captured_pieces_display(board):
+    """Returns two strings representing captured pieces for each color."""
+    initial_piece_count = {
+        chess.PAWN: 8, chess.KNIGHT: 2, chess.BISHOP: 2,
+        chess.ROOK: 2, chess.QUEEN: 1
+    }
+
+    captured_by_white = []
+    for piece_type, count in initial_piece_count.items():
+        captured_count = count - len(board.pieces(piece_type, chess.BLACK))
+        for _ in range(captured_count):
+            captured_by_white.append(UNICODE_PIECES[chess.Piece(piece_type, chess.BLACK).symbol()])
+
+    captured_by_black = []
+    for piece_type, count in initial_piece_count.items():
+        captured_count = count - len(board.pieces(piece_type, chess.WHITE))
+        for _ in range(captured_count):
+            captured_by_black.append(UNICODE_PIECES[chess.Piece(piece_type, chess.WHITE).symbol()])
+
+    return "".join(sorted(captured_by_white)), "".join(sorted(captured_by_black))
+
 def print_board(board):
     """Prints the chess board to the console."""
     clear_command = 'cls' if os.name == 'nt' else 'clear'
     os.system(clear_command)
+
+    captured_w, captured_b = get_captured_pieces_display(board)
+    print(f"Captured by White: {captured_w}")
+    print(f"Captured by Black: {captured_b}")
+
+    advantage = calculate_material_advantage(board)
+    if advantage > 0:
+        print(f"White has a material advantage of +{advantage}")
+    elif advantage < 0:
+        print(f"Black has a material advantage of +{-advantage}")
     print("  a b c d e f g h")
     print(" +-+-+-+-+-+-+-+-+")
     board_str = str(board)
@@ -226,8 +276,8 @@ def main():
             legal_moves_groups = get_legal_moves_display(board)
             if legal_moves_groups:
                 print("Legal moves:")
-            for group in legal_moves_groups:
-                print(f"  {group}")
+                for group in legal_moves_groups:
+                    print(f"  {group}")
             else:
                 print("No legal moves available.")
         except Exception as e:

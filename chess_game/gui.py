@@ -3,6 +3,7 @@ import chess
 import os
 import subprocess
 import sys
+import time
 
 # --- Constants ---
 # Screen dimensions
@@ -25,9 +26,66 @@ UNICODE_PIECES = {
 }
 
 
+from datetime import timedelta
+
+class ChessTimer:
+    def __init__(self, time_control_seconds=600):
+        self.time_control = time_control_seconds
+        self.white_time = time_control_seconds
+        self.black_time = time_control_seconds
+        self.last_move_time = None
+        self.current_turn = chess.WHITE
+
+    def start_turn(self):
+        self.last_move_time = time.time()
+
+    def end_turn(self):
+        if self.last_move_time is not None:
+            elapsed = time.time() - self.last_move_time
+            if self.current_turn == chess.WHITE:
+                self.white_time -= elapsed
+            else:
+                self.black_time -= elapsed
+
+    def switch_turn(self):
+        self.end_turn()
+        self.current_turn = not self.current_turn
+        self.start_turn()
+
+    def get_time_left(self, color):
+        if self.last_move_time is None:
+            return self.white_time if color == chess.WHITE else self.black_time
+
+        elapsed = time.time() - self.last_move_time
+        if self.current_turn == color:
+            return max(0, (self.white_time if color == chess.WHITE else self.black_time) - elapsed)
+        else:
+            return max(0, self.white_time if color == chess.WHITE else self.black_time)
+
+    def format_time(self, seconds):
+        return str(timedelta(seconds=int(seconds)))[2:]
+
+    def get_time_display(self):
+        return f"White: {self.format_time(self.get_time_left(chess.WHITE))} | Black: {self.format_time(self.get_time_left(chess.BLACK))}"
+
+PIECE_VALUES = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+}
+
+def calculate_material_advantage(board):
+    """Calculates the material advantage for each side."""
+    white_material = sum(len(board.pieces(pt, chess.WHITE)) * val for pt, val in PIECE_VALUES.items())
+    black_material = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in PIECE_VALUES.items())
+    return white_material - black_material
+
 class ChessGUI:
-    def __init__(self, board):
+    def __init__(self, board, timer=None):
         pygame.init()
+        self.timer = timer
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
         self.clock = pygame.time.Clock()
@@ -40,11 +98,13 @@ class ChessGUI:
         try:
             self.font = pygame.font.Font(font_path, 72)
             self.game_over_font = pygame.font.Font(font_path, 50)
+            self.info_font = pygame.font.Font(font_path, 18)
         except pygame.error:
             # Fallback to the default font if the bundled font is missing for some reason
             print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
             self.game_over_font = pygame.font.SysFont(None, 60)
+            self.info_font = pygame.font.SysFont(None, 24)
 
     def pixel_to_square(self, pos):
         """Converts a pixel position to a chess square index."""
@@ -95,6 +155,30 @@ class ChessGUI:
                     text = self.font.render(piece_symbol, True, color)
                     text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
+
+    def draw_game_info(self):
+        """Draws the timer and material advantage at the top and bottom of the screen."""
+        # Create a black bar for the top and bottom info
+        info_bar_height = 30
+        top_bar_rect = pygame.Rect(0, 0, WIDTH, info_bar_height)
+        bottom_bar_rect = pygame.Rect(0, HEIGHT - info_bar_height, WIDTH, info_bar_height)
+        pygame.draw.rect(self.screen, BLACK_COLOR, top_bar_rect)
+        pygame.draw.rect(self.screen, BLACK_COLOR, bottom_bar_rect)
+
+        # Timer display
+        if self.timer:
+            timer_text = self.timer.get_time_display()
+            timer_surface = self.info_font.render(timer_text, True, WHITE_COLOR)
+            timer_rect = timer_surface.get_rect(center=(WIDTH // 2, info_bar_height // 2))
+            self.screen.blit(timer_surface, timer_rect)
+
+        # Material advantage display
+        advantage = calculate_material_advantage(self.board)
+        if advantage != 0:
+            adv_text = f"Advantage: +{abs(advantage)} for {'White' if advantage > 0 else 'Black'}"
+            adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
+            adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - info_bar_height // 2))
+            self.screen.blit(adv_surface, adv_rect)
 
     def handle_mouse_click(self, pos):
         """Handles a mouse click event to select or move a piece."""
@@ -161,6 +245,7 @@ class ChessGUI:
             self.draw_board()
             self.draw_highlights()
             self.draw_pieces()
+            self.draw_game_info()
 
             if self.board.is_game_over():
                 self.draw_game_over(self.board.result())
@@ -191,7 +276,9 @@ def main():
         cli_process = None
 
     board = chess.Board()
-    gui = ChessGUI(board)
+    timer = ChessTimer(600)  # 10 minutes per side
+    timer.start_turn()
+    gui = ChessGUI(board, timer)
 
     try:
         gui.run()
