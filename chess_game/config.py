@@ -7,4 +7,4 @@
 #   e.g., "/usr/local/bin/stockfish"
 #
 # If the Stockfish executable is in your system's PATH, you can leave this as "stockfish".
-STOCKFISH_PATH = "stockfish"
+STOCKFISH_PATH = r"C:\Users\cooki\Downloads\stockfish-windows-x86-64-avx2\stockfish\stockfish-windows-x86-64-avx2.exe"
