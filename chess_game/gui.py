@@ -57,10 +57,11 @@ class GameClient:
 WIDTH = 600
 EVAL_BAR_WIDTH = 40
 INFO_PANEL_HEIGHT = 50
-BOARD_HEIGHT = 512
-HEIGHT = BOARD_HEIGHT + 2 * INFO_PANEL_HEIGHT # Window height
-# Board dimensions are the same as screen dimensions
+# SQUARE_SIZE is calculated from the WIDTH to make the board fit the window.
 SQUARE_SIZE = (WIDTH - EVAL_BAR_WIDTH) // 8
+# The board is square, so its height is 8 * SQUARE_SIZE.
+BOARD_HEIGHT = 8 * SQUARE_SIZE
+HEIGHT = BOARD_HEIGHT + 2 * INFO_PANEL_HEIGHT # Window height
 
 # Colors
 WHITE_COLOR = (255, 255, 255)
@@ -269,12 +270,13 @@ class ChessGUI:
 
             if self.game_state["is_game_over"]:
                 result = self.game_state["result"]
+                termination = self.game_state.get("termination_reason", "")
                 if result == "1-0":
-                    msg = "White wins!"
+                    msg = f"White wins by {termination}!"
                 elif result == "0-1":
-                    msg = "Black wins!"
+                    msg = f"Black wins by {termination}!"
                 elif result == "1/2-1/2":
-                    msg = "Draw!"
+                    msg = f"Draw by {termination}!"
                 else:
                     msg = "Game Over"
                 self.draw_game_over(msg)
@@ -295,7 +297,11 @@ def main(vs_ai=False):
 
         server_cmd = [sys.executable, '-m', 'chess_game.cli', 'server']
         if vs_ai:
-            server_cmd.append('ai')
+            server_cmd.append('--vs-ai')
+
+        from .config import STOCKFISH_PATH
+        if STOCKFISH_PATH:
+             server_cmd.extend(['--stockfish-path', STOCKFISH_PATH])
 
         server_process = subprocess.Popen(server_cmd, env=env)
         time.sleep(2) # Give server time to start

@@ -11,13 +11,16 @@ import json
 import sys
 
 class GameState:
-    def __init__(self, vs_ai=False):
+    def __init__(self, vs_ai=False, stockfish_path=None):
         self.board = chess.Board()
         self.timer = ChessTimer(600)
         self.stockfish = None
         self.vs_ai = vs_ai
         try:
-            self.stockfish = Stockfish()
+            if stockfish_path:
+                self.stockfish = Stockfish(path=stockfish_path)
+            else:
+                self.stockfish = Stockfish()
         except Exception as e:
             print(f"Could not initialize stockfish: {e}")
         if self.stockfish:
@@ -48,12 +51,14 @@ class GameState:
         return False
 
     def get_state_json(self):
+        outcome = self.board.outcome()
         state = {
             "fen": self.board.fen(),
             "turn": "white" if self.board.turn == chess.WHITE else "black",
             "legal_moves": [m.uci() for m in self.board.legal_moves],
             "is_game_over": self.board.is_game_over(),
-            "result": self.board.result() if self.board.is_game_over() else None,
+            "result": outcome.result() if outcome else None,
+            "termination_reason": outcome.termination.name.title().replace("_", " ") if outcome else None,
             "white_time": self.timer.get_time_left(chess.WHITE) if self.timer else None,
             "black_time": self.timer.get_time_left(chess.BLACK) if self.timer else None,
         }
@@ -129,14 +134,14 @@ def handle_client(client_socket, game_state):
     finally:
         client_socket.close()
 
-def start_server(host='127.0.0.1', port=65432, vs_ai=False):
+def start_server(host='127.0.0.1', port=65432, vs_ai=False, stockfish_path=None):
     """Start the chess game server."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((host, port))
     server.listen(5)
     print(f"Server listening on {host}:{port}")
 
-    game_state = GameState(vs_ai=vs_ai)
+    game_state = GameState(vs_ai=vs_ai, stockfish_path=stockfish_path)
 
     try:
         while True:
@@ -182,7 +187,11 @@ def run_cli():
             print("Illegal move.")
 
     print_board(board, stockfish)
-    print("Game over.", board.result())
+    outcome = board.outcome()
+    if outcome:
+        print(f"Game over. {outcome.result()} by {outcome.termination.name.title().replace('_', ' ')}")
+    else:
+        print("Game over.", board.result())
 
 UNICODE_PIECES = {
     'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔',
@@ -210,6 +219,26 @@ def print_board(board, stockfish):
     print("  a b c d e f g h")
     print("\n")
 
+def calculate_material_advantage(board):
+    """Calculates the material advantage for white."""
+    advantage = 0
+    piece_values = {
+        chess.PAWN: 1,
+        chess.KNIGHT: 3,
+        chess.BISHOP: 3,
+        chess.ROOK: 5,
+        chess.QUEEN: 9,
+    }
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece:
+            value = piece_values.get(piece.piece_type, 0)
+            if piece.color == chess.WHITE:
+                advantage += value
+            else:
+                advantage -= value
+    return advantage
+
 def print_game_status(board, timer):
     """Print the current game status including timer and move information."""
     if board.turn == chess.WHITE:
@@ -219,13 +248,36 @@ def print_game_status(board, timer):
 
     if timer:
         print(f"Time: {timer.get_time_display()}")
+
+    advantage = calculate_material_advantage(board)
+    if advantage == 0:
+        print("Material is even.")
     else:
-        print()
+        print(f"Material Advantage: +{abs(advantage)} for {'White' if advantage > 0 else 'Black'}")
+
+    # Display legal moves
+    legal_moves_san = [board.san(move) for move in board.legal_moves]
+    print("Legal Moves:", ", ".join(legal_moves_san))
+
+import argparse
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == 'server':
-        vs_ai = len(sys.argv) > 2 and sys.argv[2] == 'ai'
-        start_server(vs_ai=vs_ai)
+    parser = argparse.ArgumentParser(description="Chess game CLI and server.")
+    parser.add_argument('mode', nargs='?', default='cli', help="'cli' or 'server'")
+    parser.add_argument('--vs-ai', action='store_true', help="Enable AI opponent")
+    parser.add_argument('--stockfish-path', help="Path to Stockfish executable")
+    args = parser.parse_args()
+
+    stockfish_path = args.stockfish_path
+    if not stockfish_path:
+        try:
+            from .config import STOCKFISH_PATH
+            stockfish_path = STOCKFISH_PATH
+        except ImportError:
+            pass
+
+    if args.mode == 'server':
+        start_server(vs_ai=args.vs_ai, stockfish_path=stockfish_path)
     else:
         run_cli()
 
