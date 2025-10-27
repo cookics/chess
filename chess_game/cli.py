@@ -4,6 +4,7 @@ import random
 import time
 import pickle
 from datetime import timedelta
+from stockfish import Stockfish
 
 class ChessTimer:
     def __init__(self, time_control_seconds=600):
@@ -123,7 +124,7 @@ def get_captured_pieces_display(board):
 
     return "".join(sorted(captured_by_white)), "".join(sorted(captured_by_black))
 
-def print_board(board):
+def print_board(board, stockfish):
     """Prints the chess board to the console."""
     clear_command = 'cls' if os.name == 'nt' else 'clear'
     os.system(clear_command)
@@ -139,6 +140,13 @@ def print_board(board):
         print(f"Black has a material advantage of +{-advantage}")
     else:
         print("Material is even.")
+
+    if stockfish:
+        stockfish.set_fen_position(board.fen())
+        evaluation = stockfish.get_evaluation()
+        if evaluation['type'] == 'cp':
+            print(f"Stockfish Evaluation: {evaluation['value'] / 100.0}")
+
     print("  a b c d e f g h")
     print(" +-+-+-+-+-+-+-+-+")
     board_str = str(board)
@@ -239,6 +247,14 @@ def get_time_control():
 def main():
     board = None
     timer = None
+    stockfish = None
+
+    try:
+        stockfish = Stockfish()
+    except (FileNotFoundError, OSError):
+        print("Stockfish engine not found. Please install it and ensure it's in your PATH.")
+    except Exception as e:
+        print(f"An error occurred while initializing Stockfish: {e}")
 
     print("Welcome to Chess CLI!")
     print("Enter 'load' to load a saved game, or press Enter to start a new game.")
@@ -262,7 +278,7 @@ def main():
             timer.start_turn()
 
     while not board.is_game_over():
-        print_board(board)
+        print_board(board, stockfish)
         print_game_status(board, timer)
 
         # Check for timeout
@@ -356,7 +372,7 @@ def main():
 
     # Game over
     if board.is_game_over():
-        print_board(board)
+        print_board(board, stockfish)
         result = board.result()
         print("Game over!")
         print(f"Result: {result}")

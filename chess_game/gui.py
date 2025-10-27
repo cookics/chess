@@ -87,10 +87,11 @@ def calculate_material_advantage(board):
     return white_material - black_material
 
 class ChessGUI:
-    def __init__(self, board, stockfish, timer=None):
+    def __init__(self, board, stockfish, vs_ai=False, timer=None):
         pygame.init()
         self.timer = timer
         self.stockfish = stockfish
+        self.vs_ai = vs_ai
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
         self.clock = pygame.time.Clock()
@@ -227,7 +228,7 @@ class ChessGUI:
 
     def update_stockfish_position(self):
         """Update the Stockfish engine with the current board position."""
-        if self.stockfish.is_fen_valid(self.board.fen()):
+        if self.stockfish and self.stockfish.is_fen_valid(self.board.fen()):
             self.stockfish.set_fen_position(self.board.fen())
         else:
             print("Error: Invalid FEN")
@@ -240,7 +241,7 @@ class ChessGUI:
                 # Map centipawn advantage to a value between -1000 and 1000 for the bar
                 eval_value = max(-1000, min(1000, evaluation['value']))
                 # Calculate the height of the white bar. A positive eval is good for white.
-                white_height = (BOARD_HEIGHT / 2) * (1 + eval_value / 1000)
+                white_height = (BOARD_HEIGHT / 2) * (1 - eval_value / 1000)
                 white_rect = pygame.Rect(0, INFO_PANEL_HEIGHT, EVAL_BAR_WIDTH, white_height)
                 black_rect = pygame.Rect(0, INFO_PANEL_HEIGHT + white_height, EVAL_BAR_WIDTH, BOARD_HEIGHT - white_height)
                 pygame.draw.rect(self.screen, WHITE_COLOR, white_rect)
@@ -250,6 +251,15 @@ class ChessGUI:
         """Main loop for the GUI, now with interaction."""
         running = True
         while running:
+            # Check for AI's turn
+            if self.vs_ai and self.board.turn == chess.BLACK and not self.board.is_game_over():
+                self.update_stockfish_position()
+                best_move = self.stockfish.get_best_move()
+                if best_move:
+                    self.board.push(chess.Move.from_uci(best_move))
+                    if self.timer:
+                        self.timer.switch_turn()
+
             # Check for timeout
             if self.timer and not self.board.is_game_over() and self.game_over_message is None:
                 if self.timer.get_time_left(self.board.turn) <= 0:
@@ -290,7 +300,7 @@ class ChessGUI:
 
         pygame.quit()
 
-def main():
+def main(vs_ai=False):
     # Start the CLI in a new terminal window
     cli_process = None
     try:
@@ -321,7 +331,7 @@ def main():
     board = chess.Board()
     timer = ChessTimer(600)  # 10 minutes per side
     timer.start_turn()
-    gui = ChessGUI(board, stockfish, timer)
+    gui = ChessGUI(board, stockfish, vs_ai=vs_ai, timer=timer)
 
     try:
         gui.run()
