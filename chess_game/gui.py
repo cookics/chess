@@ -5,6 +5,52 @@ import subprocess
 import sys
 import time
 from stockfish import Stockfish
+import socket
+import json
+from datetime import timedelta
+
+class GameClient:
+    def __init__(self, host='127.0.0.1', port=65432):
+        self.host = host
+        self.port = port
+        self.socket = None
+
+    def connect(self):
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.host, self.port))
+            return True
+        except ConnectionRefusedError:
+            return False
+
+    def get_state(self):
+        if not self.socket:
+            return None
+        try:
+            request = json.dumps({"command": "get_state"})
+            self.socket.sendall(request.encode('utf-8'))
+            response = self.socket.recv(4096).decode('utf-8')
+            return json.loads(response)
+        except (BrokenPipeError, ConnectionResetError):
+            self.socket = None
+            return None
+
+    def make_move(self, move_uci):
+        if not self.socket:
+            return None
+        try:
+            request = json.dumps({"command": "make_move", "move": move_uci})
+            self.socket.sendall(request.encode('utf-8'))
+            response = self.socket.recv(4096).decode('utf-8')
+            return json.loads(response)
+        except (BrokenPipeError, ConnectionResetError):
+            self.socket = None
+            return None
+
+    def close(self):
+        if self.socket:
+            self.socket.close()
+            self.socket = None
 
 # --- Constants ---
 # Screen dimensions
@@ -29,76 +75,18 @@ UNICODE_PIECES = {
     'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
 }
 
-
-from datetime import timedelta
-
-class ChessTimer:
-    def __init__(self, time_control_seconds=600):
-        self.time_control = time_control_seconds
-        self.white_time = time_control_seconds
-        self.black_time = time_control_seconds
-        self.last_move_time = None
-        self.current_turn = chess.WHITE
-
-    def start_turn(self):
-        self.last_move_time = time.time()
-
-    def end_turn(self):
-        if self.last_move_time is not None:
-            elapsed = time.time() - self.last_move_time
-            if self.current_turn == chess.WHITE:
-                self.white_time -= elapsed
-            else:
-                self.black_time -= elapsed
-
-    def switch_turn(self):
-        self.end_turn()
-        self.current_turn = not self.current_turn
-        self.start_turn()
-
-    def get_time_left(self, color):
-        if self.last_move_time is None:
-            return self.white_time if color == chess.WHITE else self.black_time
-
-        elapsed = time.time() - self.last_move_time
-        if self.current_turn == color:
-            return max(0, (self.white_time if color == chess.WHITE else self.black_time) - elapsed)
-        else:
-            return max(0, self.white_time if color == chess.WHITE else self.black_time)
-
-    def format_time(self, seconds):
-        return str(timedelta(seconds=int(seconds)))[2:]
-
-    def get_time_display(self):
-        return f"White: {self.format_time(self.get_time_left(chess.WHITE))} | Black: {self.format_time(self.get_time_left(chess.BLACK))}"
-
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-}
-
-def calculate_material_advantage(board):
-    """Calculates the material advantage for each side."""
-    white_material = sum(len(board.pieces(pt, chess.WHITE)) * val for pt, val in PIECE_VALUES.items())
-    black_material = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in PIECE_VALUES.items())
-    return white_material - black_material
-
 class ChessGUI:
-    def __init__(self, board, stockfish, vs_ai=False, timer=None):
+    def __init__(self, game_client, vs_ai=False):
         pygame.init()
-        self.timer = timer
-        self.stockfish = stockfish
+        self.game_client = game_client
         self.vs_ai = vs_ai
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
         self.clock = pygame.time.Clock()
-        self.board = board
+        self.board = chess.Board()
         self.selected_square = None
         self.legal_moves_for_selected_piece = []
-        self.game_over_message = None
+        self.game_state = None
         # A larger font is needed for the unicode characters to be visible
         # Load the font from the bundled assets folder
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
@@ -112,6 +100,11 @@ class ChessGUI:
             self.font = pygame.font.SysFont(None, 72)
             self.game_over_font = pygame.font.SysFont(None, 60)
             self.info_font = pygame.font.SysFont(None, 24)
+
+    def update_state(self):
+        self.game_state = self.game_client.get_state()
+        if self.game_state:
+            self.board = chess.Board(self.game_state["fen"])
 
     def pixel_to_square(self, pos):
         """Converts a pixel position to a chess square index."""
@@ -169,21 +162,27 @@ class ChessGUI:
         self.screen.fill(BLACK_COLOR, pygame.Rect(0, HEIGHT - INFO_PANEL_HEIGHT, WIDTH, INFO_PANEL_HEIGHT))
 
         # Timer display in the top panel
-        if self.timer:
-            timer_text = self.timer.get_time_display()
+        if self.game_state and self.game_state["white_time"] is not None:
+            white_time_str = str(timedelta(seconds=int(self.game_state["white_time"])))[2:]
+            black_time_str = str(timedelta(seconds=int(self.game_state["black_time"])))[2:]
+            timer_text = f"White: {white_time_str} | Black: {black_time_str}"
             timer_surface = self.info_font.render(timer_text, True, WHITE_COLOR)
             timer_rect = timer_surface.get_rect(center=(WIDTH // 2, INFO_PANEL_HEIGHT // 2))
             self.screen.blit(timer_surface, timer_rect)
 
         # Material advantage display in the bottom panel
-        advantage = calculate_material_advantage(self.board)
-        if advantage == 0:
-            adv_text = "Material is even"
-        else:
-            adv_text = f"Advantage: +{abs(advantage)} for {'White' if advantage > 0 else 'Black'}"
-        adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
-        adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - INFO_PANEL_HEIGHT // 2))
-        self.screen.blit(adv_surface, adv_rect)
+        if self.game_state and "evaluation" in self.game_state:
+            evaluation = self.game_state["evaluation"]
+            if evaluation['type'] == 'cp':
+                adv = evaluation['value']
+                if adv == 0:
+                    adv_text = "Material is even"
+                else:
+                    adv_text = f"Advantage: +{abs(adv/100.0)} for {'White' if adv > 0 else 'Black'}"
+                adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
+                adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - INFO_PANEL_HEIGHT // 2))
+                self.screen.blit(adv_surface, adv_rect)
+
 
     def handle_mouse_click(self, pos):
         """Handles a mouse click event to select or move a piece."""
@@ -191,24 +190,23 @@ class ChessGUI:
 
         # If a piece was already selected, check if this is a legal move
         if self.selected_square is not None:
-            move = chess.Move(self.selected_square, clicked_square)
-            # Also check for promotion
-            if move in self.board.legal_moves:
-                self.board.push(move)
-                if self.timer:
-                    self.timer.switch_turn()
-                self.selected_square = None
-                self.legal_moves_for_selected_piece = []
-                return
+            move_uci = chess.Move(self.selected_square, clicked_square).uci()
+            if self.game_state and move_uci in self.game_state["legal_moves"]:
+                self.game_client.make_move(move_uci)
+                self.update_state()
+            self.selected_square = None
+            self.legal_moves_for_selected_piece = []
+            return
 
         # Check if the clicked square has a piece of the correct color
         piece = self.board.piece_at(clicked_square)
         if piece and piece.color == self.board.turn:
             self.selected_square = clicked_square
             # Get all legal moves for the selected piece
-            self.legal_moves_for_selected_piece = [
-                m for m in self.board.legal_moves if m.from_square == self.selected_square
-            ]
+            if self.game_state:
+                self.legal_moves_for_selected_piece = [
+                    chess.Move.from_uci(m) for m in self.game_state["legal_moves"] if chess.Move.from_uci(m).from_square == self.selected_square
+                ]
         else: # Deselect if clicking an empty square or opponent's piece
             self.selected_square = None
             self.legal_moves_for_selected_piece = []
@@ -226,17 +224,10 @@ class ChessGUI:
         text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
         self.screen.blit(text_surface, text_rect)
 
-    def update_stockfish_position(self):
-        """Update the Stockfish engine with the current board position."""
-        if self.stockfish and self.stockfish.is_fen_valid(self.board.fen()):
-            self.stockfish.set_fen_position(self.board.fen())
-        else:
-            print("Error: Invalid FEN")
-
     def draw_evaluation_bar(self):
         """Draws the Stockfish evaluation bar."""
-        if self.stockfish:
-            evaluation = self.stockfish.get_evaluation()
+        if self.game_state and "evaluation" in self.game_state:
+            evaluation = self.game_state["evaluation"]
             if evaluation['type'] == 'cp':
                 # Map centipawn advantage to a value between -1000 and 1000 for the bar
                 eval_value = max(-1000, min(1000, evaluation['value']))
@@ -251,28 +242,23 @@ class ChessGUI:
         """Main loop for the GUI, now with interaction."""
         running = True
         while running:
-            # Check for AI's turn
-            if self.vs_ai and self.board.turn == chess.BLACK and not self.board.is_game_over():
-                self.update_stockfish_position()
-                best_move = self.stockfish.get_best_move()
-                if best_move:
-                    self.board.push(chess.Move.from_uci(best_move))
-                    if self.timer:
-                        self.timer.switch_turn()
+            self.update_state()
+            if not self.game_state:
+                # Handle server connection loss
+                print("Lost connection to the server.")
+                break
 
-            # Check for timeout
-            if self.timer and not self.board.is_game_over() and self.game_over_message is None:
-                if self.timer.get_time_left(self.board.turn) <= 0:
-                    winner = "Black" if self.board.turn == chess.WHITE else "White"
-                    self.game_over_message = f"{winner} wins by timeout!"
+            # AI's turn
+            if self.vs_ai and self.game_state["turn"] == "black" and not self.game_state["is_game_over"]:
+                # The server should handle AI moves
+                time.sleep(0.5) # Prevent spamming server
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if not self.board.is_game_over() and self.game_over_message is None:
+                    if not self.game_state["is_game_over"]:
                         self.handle_mouse_click(pygame.mouse.get_pos())
-                        self.update_stockfish_position()
 
             # Drawing order: board, then highlights, then pieces
             self.draw_board()
@@ -281,19 +267,17 @@ class ChessGUI:
             self.draw_game_info()
             self.draw_evaluation_bar()
 
-            if self.game_over_message:
-                self.draw_game_over(self.game_over_message)
-            elif self.board.is_game_over():
-                result_str = self.board.result()
-                if result_str == "1-0":
-                    message = "White wins!"
-                elif result_str == "0-1":
-                    message = "Black wins!"
-                elif result_str == "1/2-1/2":
-                    message = "It's a Draw!"
+            if self.game_state["is_game_over"]:
+                result = self.game_state["result"]
+                if result == "1-0":
+                    msg = "White wins!"
+                elif result == "0-1":
+                    msg = "Black wins!"
+                elif result == "1/2-1/2":
+                    msg = "Draw!"
                 else:
-                    message = "Game Over"
-                self.draw_game_over(message)
+                    msg = "Game Over"
+                self.draw_game_over(msg)
 
             pygame.display.flip()
             self.clock.tick(60)
@@ -301,44 +285,31 @@ class ChessGUI:
         pygame.quit()
 
 def main(vs_ai=False):
-    # Start the CLI in a new terminal window
-    cli_process = None
+    # Start the CLI server in a new terminal window
+    server_process = None
     try:
-        if sys.platform.startswith('win'):
-            cli_process = subprocess.Popen(['cmd.exe', '/c', 'python -m chess_game.cli'], creationflags=subprocess.CREATE_NEW_CONSOLE)
-        elif sys.platform.startswith('darwin'):
-            cli_process = subprocess.Popen(['open', '-a', 'Terminal', '-n', sys.executable, '-m', 'chess_game.cli'])
-        else:
-            terminal_emulator = 'x-terminal-emulator'
-            try:
-                cli_process = subprocess.Popen([terminal_emulator, '-e', f'{sys.executable} -m chess_game.cli'])
-            except FileNotFoundError:
-                print("Could not find a default terminal emulator. Please run the CLI manually.")
+        server_process = subprocess.Popen([sys.executable, '-m', 'chess_game.cli', 'server'])
+        time.sleep(2) # Give server time to start
     except Exception as e:
-        print(f"Failed to start CLI: {e}")
+        print(f"Failed to start server: {e}")
+        return
 
-    # Initialize Stockfish
-    stockfish = None
-    try:
-        stockfish = Stockfish()
-    except (FileNotFoundError, OSError):
-        print("Stockfish engine not found. Please install it and ensure it's in your PATH,")
-        print("or specify the path in the config.py file.")
-        # The GUI will run without the evaluation bar
-    except Exception as e:
-        print(f"An error occurred while initializing Stockfish: {e}")
+    game_client = GameClient()
+    if not game_client.connect():
+        print("Failed to connect to the game server.")
+        if server_process:
+            server_process.terminate()
+        return
 
-    board = chess.Board()
-    timer = ChessTimer(600)  # 10 minutes per side
-    timer.start_turn()
-    gui = ChessGUI(board, stockfish, vs_ai=vs_ai, timer=timer)
+    gui = ChessGUI(game_client, vs_ai=vs_ai)
 
     try:
         gui.run()
     finally:
-        if cli_process:
-            cli_process.terminate()
-            cli_process.wait()
+        game_client.close()
+        if server_process:
+            server_process.terminate()
+            server_process.wait()
 
 if __name__ == "__main__":
     main()
