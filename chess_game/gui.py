@@ -288,7 +288,16 @@ def main(vs_ai=False):
     # Start the CLI server in a new terminal window
     server_process = None
     try:
-        server_process = subprocess.Popen([sys.executable, '-m', 'chess_game.cli', 'server'])
+        # Get the root directory of the project
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = root_dir
+
+        server_cmd = [sys.executable, '-m', 'chess_game.cli', 'server']
+        if vs_ai:
+            server_cmd.append('ai')
+
+        server_process = subprocess.Popen(server_cmd, env=env)
         time.sleep(2) # Give server time to start
     except Exception as e:
         print(f"Failed to start server: {e}")

@@ -147,13 +147,87 @@ def start_server(host='127.0.0.1', port=65432, vs_ai=False):
     finally:
         server.close()
 
+def run_cli():
+    """Run the interactive CLI for the chess game."""
+    game = GameState()
+    board = game.board
+    timer = game.timer
+    stockfish = game.stockfish
+
+    if timer:
+        timer.start_turn()
+
+    while not board.is_game_over():
+        print_board(board, stockfish)
+        print_game_status(board, timer)
+
+        if timer and timer.is_time_out(board.turn):
+            print("Time's up!")
+            break
+
+        move_input = input("Enter your move in SAN or UCI format: ").strip()
+
+        try:
+            move = board.parse_san(move_input)
+        except ValueError:
+            try:
+                move = chess.Move.from_uci(move_input)
+            except ValueError:
+                print("Invalid move format.")
+                continue
+
+        if move in board.legal_moves:
+            game.make_move(move.uci())
+        else:
+            print("Illegal move.")
+
+    print_board(board, stockfish)
+    print("Game over.", board.result())
+
+UNICODE_PIECES = {
+    'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔',
+    'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
+}
+
+def print_board(board, stockfish):
+    """Prints the chess board to the console."""
+    clear_command = 'cls' if os.name == 'nt' else 'clear'
+    os.system(clear_command)
+
+    if stockfish:
+        stockfish.set_fen_position(board.fen())
+        evaluation = stockfish.get_evaluation()
+        if evaluation['type'] == 'cp':
+            print(f"Stockfish Evaluation: {evaluation['value'] / 100.0}")
+
+    print("  a b c d e f g h")
+    print(" +-+-+-+-+-+-+-+-+")
+    board_str = str(board)
+    rows = board_str.split('\n')
+    for i, row in enumerate(rows):
+        print(f"{8-i}|{row.replace(' ', '|')}|{8-i}")
+    print(" +-+-+-+-+-+-+-+-+")
+    print("  a b c d e f g h")
+    print("\n")
+
+def print_game_status(board, timer):
+    """Print the current game status including timer and move information."""
+    if board.turn == chess.WHITE:
+        print("White's turn.")
+    else:
+        print("Black's turn.")
+
+    if timer:
+        print(f"Time: {timer.get_time_display()}")
+    else:
+        print()
+
 def main():
-    vs_ai = len(sys.argv) > 2 and sys.argv[2] == 'ai'
     if len(sys.argv) > 1 and sys.argv[1] == 'server':
+        vs_ai = len(sys.argv) > 2 and sys.argv[2] == 'ai'
         start_server(vs_ai=vs_ai)
     else:
-        # The original CLI gameplay code would go here
-        print("Running in standard CLI mode. To run as a server, use 'python -m chess_game.cli server'")
+        run_cli()
 
 if __name__ == "__main__":
     main()
