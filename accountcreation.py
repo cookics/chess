@@ -32,7 +32,7 @@ class AccountManager:
         if username in self.accounts:
             print(f"Account '{username}' already exists!")
             return False
-
+        
         self.accounts[username] = {
             'elo': 800,
             'games_played': 0,
@@ -40,7 +40,7 @@ class AccountManager:
             'losses': 0,
             'draws': 0
         }
-
+        
         if self.save_accounts():
             print(f"Account '{username}' created successfully with ELO 800!")
             return True
@@ -86,7 +86,7 @@ class AccountManager:
         if not self.accounts:
             print("No accounts exist yet.")
             return
-
+        
         print("\n=== Existing Accounts ===")
         for username, info in self.accounts.items():
             status = " (CURRENT)" if username == self.current_account else ""

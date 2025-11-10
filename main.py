@@ -15,9 +15,10 @@ def account_menu():
             print("No account currently logged in")
             print("1. Create Account")
             print("2. Login")
-
+        
         print("3. List All Accounts")
         print("4. Back to Main Menu")
+
         choice = input("Choose option (1-4): ").strip()
 
         if account_manager.current_account:
@@ -58,34 +59,29 @@ def main():
             cli.main()
         elif sys.argv[1] == 'gui':
             gui.main()
-        elif sys.argv[1] == 'ai':
-            gui.main(vs_ai=True)
         else:
             print(f"Invalid argument: {sys.argv[1]}")
-            print("Usage: python main.py [cli|gui|ai]")
+            print("Usage: python main.py [cli|gui]")
     else:
         while True:
             print("\n=== Chess Game ===")
             print("1. CLI Mode")
-            print("2. GUI Mode (Human vs. Human)")
-            print("3. GUI Mode (Human vs. AI)")
-            print("4. Account Management")
-            print("5. Exit")
+            print("2. GUI Mode")
+            print("3. Account Management")
+            print("4. Exit")
 
-            choice = input("Choose mode (1-5): ").strip()
+            choice = input("Choose mode (1-4): ").strip()
             if choice == '1':
                 cli.main()
             elif choice == '2':
                 gui.main()
             elif choice == '3':
-                gui.main(vs_ai=True)
-            elif choice == '4':
                 account_menu()
-            elif choice == '5':
+            elif choice == '4':
                 print("Thanks for playing!")
                 break
             else:
-                print("Invalid choice. Please enter 1-5.")
+                print("Invalid choice. Please enter 1-4.")
 
 if __name__ == "__main__":
     main()
