@@ -3,5 +3,5 @@ __pycache__/
 *.log
 /verification/
 run_main.py
-accounts.json
+# accounts.json # Commented out to allow for sample data
 *.pkl
