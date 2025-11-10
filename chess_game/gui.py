@@ -43,6 +43,7 @@ class ChessGUI:
         self.selected_square = None
         self.legal_moves_for_selected_piece = []
         self.vs_ai = vs_ai
+        self.game_over_processed = False
         settings = load_settings()
         self.stockfish_manager = StockfishManager(settings.get('stockfish_path'))
         self.timer = ChessTimer()
@@ -230,7 +231,7 @@ class ChessGUI:
             self.draw_pieces()
             self.draw_info_panel()
 
-            if self.board.is_game_over():
+            if self.board.is_game_over() and not self.game_over_processed:
                 self.draw_game_over(self.board.result())
                 if self.account_manager.current_account:
                     game = chess.pgn.Game()
@@ -256,6 +257,7 @@ class ChessGUI:
                     new_elo = elo_calculator.calculate_elo(game_pgn, current_elo)
                     self.account_manager.update_elo(self.account_manager.current_account, new_elo)
                     print(f"Your new ELO is: {new_elo}")
+                self.game_over_processed = True
 
             pygame.display.flip()
             self.clock.tick(60)
