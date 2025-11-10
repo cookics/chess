@@ -1,10 +1,10 @@
 from chess_game import cli, gui
 import sys
-from accountcreation import account_manager
+from accountcreation import AccountManager
 from chess_game.game_analyzer import GameAnalyzer
 from chess_game.config import load_settings
 
-def account_menu():
+def account_menu(account_manager):
     """Handle account creation and login."""
     while True:
         print("\n=== Account Management ===")
@@ -18,7 +18,7 @@ def account_menu():
             print("No account currently logged in")
             print("1. Create Account")
             print("2. Login")
-        
+
         print("3. List All Accounts")
         print("4. Back to Main Menu")
 
@@ -82,34 +82,41 @@ def main():
     """
     Main entry point for the application.
     """
+    account_manager = AccountManager()
+
     if len(sys.argv) > 1:
         if sys.argv[1] == 'cli':
             cli.main(account_manager)
         elif sys.argv[1] == 'gui':
-            gui.main(account_manager)
+            gui.main(account_manager=account_manager)
+        elif sys.argv[1] == 'ai':
+            gui.main(vs_ai=True, account_manager=account_manager)
         else:
             print(f"Invalid argument: {sys.argv[1]}")
-            print("Usage: python main.py [cli|gui]")
+            print("Usage: python main.py [cli|gui|ai]")
     else:
         while True:
             print("\n=== Chess Game ===")
             print("1. CLI Mode")
-            print("2. GUI Mode")
-            print("3. Account Management")
-            print("4. Exit")
+            print("2. GUI Mode (Human vs. Human)")
+            print("3. GUI Mode (Human vs. AI)")
+            print("4. Account Management")
+            print("5. Exit")
 
-            choice = input("Choose mode (1-4): ").strip()
+            choice = input("Choose mode (1-5): ").strip()
             if choice == '1':
                 cli.main(account_manager)
             elif choice == '2':
-                gui.main(account_manager)
+                gui.main(account_manager=account_manager)
             elif choice == '3':
-                account_menu()
+                gui.main(vs_ai=True, account_manager=account_manager)
             elif choice == '4':
+                account_menu(account_manager)
+            elif choice == '5':
                 print("Thanks for playing!")
                 break
             else:
-                print("Invalid choice. Please enter 1-4.")
+                print("Invalid choice. Please enter 1-5.")
 
 if __name__ == "__main__":
     main()

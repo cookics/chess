@@ -9,6 +9,11 @@ from AiOpponentManager import AIOpponentManager
 from chess_game.config import load_settings
 from chess_game.stockfish_manager import StockfishManager
 from chess_game.elo_calculator import EloCalculator
+import socketserver
+import json
+import threading
+import argparse
+import sys
 
 class ChessTimer:
     def __init__(self, time_control_seconds=600):
@@ -17,7 +22,6 @@ class ChessTimer:
         self.black_time = time_control_seconds
         self.last_move_time = None
         self.current_turn = chess.WHITE
-
 
     def start_turn(self):
         self.last_move_time = time.time()
@@ -36,15 +40,15 @@ class ChessTimer:
         self.start_turn()
 
     def get_time_left(self, color):
-        if color == chess.WHITE:
-            return max(0, self.white_time)
-        else:
-            return max(0, self.black_time)
-        # Calculate current time if timer is running
-        if self.running and self.last_move_time is not None:
+        if self.last_move_time is None:
+            return self.white_time if color == chess.WHITE else self.black_time
+
+        current_time = self.white_time if color == chess.WHITE else self.black_time
+        if self.current_turn == color:
             elapsed = time.time() - self.last_move_time
-            current_time = max(0, current_time - elapsed)
-        return current_time
+            current_time -= elapsed
+
+        return max(0, current_time)
 
     def format_time(self, seconds):
         return str(timedelta(seconds=int(seconds)))[2:]
@@ -53,8 +57,107 @@ class ChessTimer:
         return self.get_time_left(color) <= 0
 
     def get_time_display(self):
-        return f"White: {self.format_time(self.white_time)} | Black: {self.format_time(self.black_time)}"
+        return f"White: {self.format_time(self.get_time_left(chess.WHITE))} | Black: {self.format_time(self.get_time_left(chess.BLACK))}"
 
+class GameServer(socketserver.BaseRequestHandler):
+
+    board = chess.Board()
+    game = chess.pgn.Game()
+    node = game
+    timer = ChessTimer(600)
+    stockfish_manager = None
+    ai_opponent = None
+    vs_ai = False
+    lock = threading.Lock()
+
+    def handle(self):
+        while True:
+            try:
+                data = self.request.recv(1024).strip()
+                if not data:
+                    break
+
+                request = json.loads(data.decode('utf-8'))
+                command = request.get("command")
+
+                with GameServer.lock:
+                    if command == "get_state":
+                        response = self.get_state()
+                    elif command == "make_move":
+                        move = request.get("move")
+                        response = self.make_move(move)
+                    else:
+                        response = {"status": "error", "message": "Invalid command"}
+
+                self.request.sendall(json.dumps(response).encode('utf-8'))
+            except (ConnectionResetError, BrokenPipeError):
+                print("Client disconnected.")
+                break
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                break
+
+    def get_state(self):
+        eval_data = None
+        if GameServer.stockfish_manager:
+            eval_data = GameServer.stockfish_manager.get_evaluation(GameServer.board.fen())
+
+        termination_reason = ""
+        pgn = ""
+        if GameServer.board.is_game_over():
+            if GameServer.board.is_checkmate():
+                termination_reason = "checkmate"
+            elif GameServer.board.is_stalemate():
+                termination_reason = "stalemate"
+            elif GameServer.board.is_insufficient_material():
+                termination_reason = "insufficient material"
+            elif GameServer.board.is_seventyfive_moves():
+                termination_reason = "75-move rule"
+            elif GameServer.board.is_fivefold_repetition():
+                termination_reason = "fivefold repetition"
+
+            GameServer.game.headers["Result"] = GameServer.board.result()
+            pgn = str(GameServer.game)
+
+        return {
+            "fen": GameServer.board.fen(),
+            "turn": "white" if GameServer.board.turn == chess.WHITE else "black",
+            "legal_moves": [move.uci() for move in GameServer.board.legal_moves],
+            "is_game_over": GameServer.board.is_game_over(),
+            "result": GameServer.board.result(),
+            "white_time": GameServer.timer.get_time_left(chess.WHITE),
+            "black_time": GameServer.timer.get_time_left(chess.BLACK),
+            "evaluation": eval_data,
+            "termination_reason": termination_reason,
+            "pgn": pgn
+        }
+
+    def make_move(self, move_uci):
+        try:
+            move = chess.Move.from_uci(move_uci)
+            if move in GameServer.board.legal_moves:
+                GameServer.board.push(move)
+                GameServer.node = GameServer.node.add_variation(move)
+                GameServer.timer.switch_turn()
+
+                if GameServer.vs_ai and not GameServer.board.is_game_over():
+                    self.make_ai_move()
+
+                return {"status": "ok"}
+            else:
+                return {"status": "error", "message": "Illegal move"}
+        except ValueError:
+            return {"status": "error", "message": "Invalid move format"}
+
+    def make_ai_move(self):
+        if GameServer.ai_opponent:
+            ai_move_uci = GameServer.ai_opponent.get_best_move(GameServer.board)
+            if ai_move_uci:
+                ai_move = chess.Move.from_uci(ai_move_uci)
+                if ai_move in GameServer.board.legal_moves:
+                    GameServer.board.push(ai_move)
+                    GameServer.node = GameServer.node.add_variation(ai_move)
+                    GameServer.timer.switch_turn()
 def save_game(board, timer, filename="chess_save.pkl"):
     """Save the current game state to a file."""
     game_state = {
@@ -87,38 +190,6 @@ def load_game(filename="chess_save.pkl"):
     except Exception as e:
         print(f"Error loading game: {e}")
         return None, None
-
-def print_board(board):
-    """Prints the chess board to the console."""
-    clear_command = 'cls' if os.name == 'nt' else 'clear'
-    os.system(clear_command)
-    print("  a b c d e f g h")
-    print(" +-+-+-+-+-+-+-+-+")
-    board_str = str(board)
-    rows = board_str.split('\n')
-    for i, row in enumerate(rows):
-        print(f"{8-i}|{row.replace(' ', '|')}|{8-i}")
-    print(" +-+-+-+-+-+-+-+-+")
-    print("  a b c d e f g h")
-    print("\n")
-
-def print_game_status(board, timer, stockfish_manager):
-    """Print the current game status including timer and move information."""
-    if board.turn == chess.WHITE:
-        print("White's turn.")
-    else:
-        print("Black's turn.")
-
-    if timer:
-        print(f"Time: {timer.get_time_display()}")
-
-    if stockfish_manager:
-        eval = stockfish_manager.get_evaluation(board.fen())
-        if eval and eval['type'] == 'cp':
-            print(f"Evaluation: {eval['value'] / 100.0}")
-        elif eval and eval['type'] == 'mate':
-            print(f"Evaluation: Mate in {eval['value']}")
-
 def get_legal_moves_display(board):
     """Generate enhanced legal moves display with piece names, grouped by piece in logical order."""
     piece_names = {
@@ -162,39 +233,23 @@ def get_legal_moves_display(board):
 
     return formatted_moves
 
-def get_time_control():
-    """Get time control settings from user."""
-    print("\nTime control options:")
-    print("1. Bullet (1 minute)")
-    print("2. Blitz (3 minutes)")
-    print("3. Rapid (10 minutes)")
-    print("4. Classical (30 minutes)")
-    print("5. Custom time")
-    print("6. No timer")
+def print_game_status(board, timer, stockfish_manager):
+    """Print the current game status including timer and move information."""
+    if board.turn == chess.WHITE:
+        print("White's turn.")
+    else:
+        print("Black's turn.")
 
-    while True:
-        choice = input("Choose time control (1-6): ").strip()
-        time_controls = {
-            '1': 60,    # 1 minute
-            '2': 180,   # 3 minutes
-            '3': 600,   # 10 minutes
-            '4': 1800,  # 30 minutes
-            '6': 0      # No timer
-        }
+    if timer:
+        print(f"Time: {timer.get_time_display()}")
 
-        if choice in time_controls:
-            if choice == '5':
-                try:
-                    minutes = int(input("Enter minutes per player: "))
-                    return minutes * 60
-                except ValueError:
-                    print("Please enter a valid number.")
-                    continue
-            return time_controls[choice]
-        else:
-            print("Invalid choice. Please enter 1-6.")
-
-def main(account_manager):
+    if stockfish_manager:
+        eval = stockfish_manager.get_evaluation(board.fen())
+        if eval and eval['type'] == 'cp':
+            print(f"Evaluation: {eval['value'] / 100.0}")
+        elif eval and eval['type'] == 'mate':
+            print(f"Evaluation: Mate in {eval['value']}")
+def run_cli_game(account_manager):
     board = None
     timer = None
     vs_ai = False
@@ -375,3 +430,60 @@ def main(account_manager):
         save_final = input("Save final position? (y/n): ").strip().lower()
         if save_final == 'y':
             save_game(board, timer, "final_position.pkl")
+def run_server(vs_ai, stockfish_path):
+    GameServer.vs_ai = vs_ai
+    stockfish_path = stockfish_path or load_settings().get('stockfish_path')
+    if stockfish_path:
+        GameServer.stockfish_manager = StockfishManager(stockfish_path)
+        if GameServer.vs_ai:
+            GameServer.ai_opponent = AIOpponentManager(stockfish_path)
+            GameServer.ai_opponent.set_elo(1500) # Default ELO
+
+    host, port = "127.0.0.1", 65432
+    print(f"Starting server on {host}:{port}, AI={'on' if GameServer.vs_ai else 'off'}")
+
+    server = socketserver.TCPServer((host, port), GameServer)
+    server.serve_forever()
+
+def main():
+    parser = argparse.ArgumentParser(description="Chess Game CLI and Server")
+    parser.add_argument('mode', nargs='?', default='cli', help="Mode to run: 'cli' or 'server'")
+    parser.add_argument('--vs-ai', action='store_true', help="Play against AI (server mode only)")
+    parser.add_argument('--stockfish-path', help="Path to Stockfish executable")
+
+    # This is a bit of a hack to make this work with the old main.py
+    # If the first argument is an AccountManager instance, we are in CLI mode
+    args = []
+    account_manager = None
+    if len(sys.argv) > 1 and not isinstance(sys.argv[1], str):
+        account_manager = sys.argv[1]
+    else:
+        args = sys.argv[1:]
+
+    parsed_args = parser.parse_args(args)
+
+    if parsed_args.mode == 'server':
+        run_server(parsed_args.vs_ai, parsed_args.stockfish_path)
+    else:
+        run_cli_game(account_manager)
+def print_board(board):
+    clear_command = 'cls' if os.name == 'nt' else 'clear'
+    os.system(clear_command)
+    print("  a b c d e f g h")
+    print(" +-+-+-+-+-+-+-+-+")
+    board_str = str(board)
+    rows = board_str.split('\n')
+    for i, row in enumerate(rows):
+        print(f"{8-i}|{row.replace(' ', '|')}|{8-i}")
+    print(" +-+-+-+-+-+-+-+-+")
+    print("  a b c d e f g h\n")
+
+def get_time_control():
+    try:
+        minutes = int(input("Enter minutes per player: "))
+        return minutes * 60
+    except ValueError:
+        return 600
+
+if __name__ == "__main__":
+    main()

@@ -76,24 +76,42 @@ class AccountManager:
             return account_info
         return None
 
-    def update_elo(self, username, new_elo):
-        """Update ELO for an account."""
-        if username in self.accounts:
-            self.accounts[username]['elo'] = new_elo
-            self.save_accounts()
-            return True
-        return False
+    def record_game_result(self, player1_username, player2_username, result, game_pgn):
+        """Record the result of a game and update ELOs."""
+        from chess_game import elo
+        p1_elo = self.accounts[player1_username]['elo']
+        p2_elo = self.accounts[player2_username]['elo']
+        if result == 'player1_win': score_p1 = 1.0
+        elif result == 'player2_win': score_p1 = 0.0
+        elif result == 'draw': score_p1 = 0.5
+        else:
+            print("Error: Invalid game result provided.")
+            return
 
-    def add_game_to_history(self, username, game_pgn):
-        """Add a completed game to the user's game history."""
-        if username in self.accounts:
-            if 'game_history' not in self.accounts[username]:
-                self.accounts[username]['game_history'] = []
-            self.accounts[username]['game_history'].append(game_pgn)
-            self.accounts[username]['games_played'] += 1
-            self.save_accounts()
-            return True
-        return False
+        new_p1_elo, new_p2_elo = elo.update_ratings(p1_elo, p2_elo, score_p1)
+
+        # Player 1
+        self.accounts[player1_username]['elo'] = new_p1_elo
+        self.accounts[player1_username]['games_played'] += 1
+        if result == 'player1_win': self.accounts[player1_username]['wins'] += 1
+        elif result == 'draw': self.accounts[player1_username]['draws'] += 1
+        else: self.accounts[player1_username]['losses'] += 1
+        if 'game_history' not in self.accounts[player1_username]:
+            self.accounts[player1_username]['game_history'] = []
+        self.accounts[player1_username]['game_history'].append(game_pgn)
+
+        # Player 2
+        self.accounts[player2_username]['elo'] = new_p2_elo
+        self.accounts[player2_username]['games_played'] += 1
+        if result == 'player2_win': self.accounts[player2_username]['wins'] += 1
+        elif result == 'draw': self.accounts[player2_username]['draws'] += 1
+        else: self.accounts[player2_username]['losses'] += 1
+        if 'game_history' not in self.accounts[player2_username]:
+            self.accounts[player2_username]['game_history'] = []
+        self.accounts[player2_username]['game_history'].append(game_pgn)
+
+        self.save_accounts()
+        print(f"Game recorded. New ELOs: {player1_username}: {new_p1_elo}, {player2_username}: {new_p2_elo}")
 
     def list_accounts(self):
         """List all existing accounts."""

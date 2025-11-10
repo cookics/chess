@@ -1,11 +1,12 @@
 from stockfish import Stockfish
+from chess_game.config import load_settings
 
 try:
-    # This will work if stockfish is in your PATH
-    stockfish = Stockfish()
+    settings = load_settings()
+    stockfish_path = settings.get('stockfish_path')
+    stockfish = Stockfish(path=stockfish_path)
     print("Stockfish initialized successfully!")
     print(f"Stockfish version: {stockfish.get_stockfish_major_version()}")
-    print("Path to executable:", stockfish.get_parameters()['StockfishPath'])
 except Exception as e:
     print(f"Error initializing Stockfish: {e}")
     print("\nTroubleshooting:")
