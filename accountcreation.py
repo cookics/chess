@@ -38,7 +38,8 @@ class AccountManager:
             'games_played': 0,
             'wins': 0,
             'losses': 0,
-            'draws': 0
+            'draws': 0,
+            'game_history': []
         }
         
         if self.save_accounts():
@@ -77,6 +78,17 @@ class AccountManager:
         """Update ELO for an account."""
         if username in self.accounts:
             self.accounts[username]['elo'] = new_elo
+            self.save_accounts()
+            return True
+        return False
+
+    def add_game_to_history(self, username, game_pgn):
+        """Add a completed game to the user's game history."""
+        if username in self.accounts:
+            if 'game_history' not in self.accounts[username]:
+                self.accounts[username]['game_history'] = []
+            self.accounts[username]['game_history'].append(game_pgn)
+            self.accounts[username]['games_played'] += 1
             self.save_accounts()
             return True
         return False

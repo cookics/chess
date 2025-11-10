@@ -1,13 +1,23 @@
 import pygame
 import chess
+import chess.pgn
 import os
+import time
+from AiOpponentManager import AIOpponentManager
+from chess_game.config import load_settings
+from chess_game.stockfish_manager import StockfishManager
+from chess_game.cli import ChessTimer
+from accountcreation import account_manager
+from chess_game.elo_calculator import EloCalculator
 
 # --- Constants ---
 # Screen dimensions
-WIDTH = 512
-HEIGHT = 512
-# Board dimensions are the same as screen dimensions
-SQUARE_SIZE = WIDTH // 8
+BOARD_WIDTH = 512
+BOARD_HEIGHT = 512
+INFO_PANEL_WIDTH = 256
+WIDTH = BOARD_WIDTH + INFO_PANEL_WIDTH
+HEIGHT = BOARD_HEIGHT
+SQUARE_SIZE = BOARD_WIDTH // 8
 
 # Colors
 WHITE_COLOR = (255, 255, 255)
@@ -24,7 +34,7 @@ UNICODE_PIECES = {
 
 
 class ChessGUI:
-    def __init__(self, board):
+    def __init__(self, board, vs_ai=False):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
@@ -32,17 +42,28 @@ class ChessGUI:
         self.board = board
         self.selected_square = None
         self.legal_moves_for_selected_piece = []
+        self.vs_ai = vs_ai
+        settings = load_settings()
+        self.stockfish_manager = StockfishManager(settings.get('stockfish_path'))
+        self.timer = ChessTimer()
+        self.timer.start_turn()
+        if self.vs_ai:
+            self.ai_opponent = AIOpponentManager(stockfish_path=settings.get('stockfish_path'))
+            self.ai_opponent.set_elo(1350)  # Default ELO
+
         # A larger font is needed for the unicode characters to be visible
         # Load the font from the bundled assets folder
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
         try:
             self.font = pygame.font.Font(font_path, 72)
             self.game_over_font = pygame.font.Font(font_path, 50)
+            self.info_font = pygame.font.Font(font_path, 24)
         except pygame.error:
             # Fallback to the default font if the bundled font is missing for some reason
             print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
             self.game_over_font = pygame.font.SysFont(None, 60)
+            self.info_font = pygame.font.SysFont(None, 30)
 
     def pixel_to_square(self, pos):
         """Converts a pixel position to a chess square index."""
@@ -94,6 +115,38 @@ class ChessGUI:
                     text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
 
+    def draw_info_panel(self):
+        """Draws the information panel with timers and evaluation bar."""
+        info_panel_rect = pygame.Rect(BOARD_WIDTH, 0, INFO_PANEL_WIDTH, HEIGHT)
+        panel_color = (40, 40, 40)
+        pygame.draw.rect(self.screen, panel_color, info_panel_rect)
+
+        # Display timers
+        white_time_text = self.timer.format_time(self.timer.get_time_left(chess.WHITE))
+        black_time_text = self.timer.format_time(self.timer.get_time_left(chess.BLACK))
+
+        white_timer_surface = self.info_font.render(f"White: {white_time_text}", True, WHITE_COLOR)
+        black_timer_surface = self.info_font.render(f"Black: {black_time_text}", True, WHITE_COLOR)
+
+        self.screen.blit(white_timer_surface, (BOARD_WIDTH + 10, HEIGHT - 40))
+        self.screen.blit(black_timer_surface, (BOARD_WIDTH + 10, 10))
+
+        # Evaluation Bar
+        eval_bar_width = 40
+        eval_bar_x = BOARD_WIDTH + INFO_PANEL_WIDTH - eval_bar_width - 10
+
+        if self.stockfish_manager:
+            eval_data = self.stockfish_manager.get_evaluation(self.board.fen())
+            if eval_data and eval_data['type'] == 'cp':
+                cp = max(-1000, min(1000, eval_data['value']))
+                normalized_eval = (cp + 1000) / 2000
+
+                white_bar_height = normalized_eval * (HEIGHT - 80) # Adjust height for timers
+                black_bar_height = (HEIGHT - 80) - white_bar_height
+
+                pygame.draw.rect(self.screen, WHITE_COLOR, (eval_bar_x, 50 + black_bar_height, eval_bar_width, white_bar_height))
+                pygame.draw.rect(self.screen, BLACK_COLOR, (eval_bar_x, 50, eval_bar_width, black_bar_height))
+
     def handle_mouse_click(self, pos):
         """Handles a mouse click event to select or move a piece."""
         clicked_square = self.pixel_to_square(pos)
@@ -104,6 +157,7 @@ class ChessGUI:
             # Also check for promotion
             if move in self.board.legal_moves:
                 self.board.push(move)
+                self.timer.switch_turn()
                 self.selected_square = None
                 self.legal_moves_for_selected_piece = []
                 return
@@ -148,6 +202,14 @@ class ChessGUI:
         """Main loop for the GUI, now with interaction."""
         running = True
         while running:
+            if self.vs_ai and self.board.turn == chess.BLACK and not self.board.is_game_over():
+                pygame.time.wait(500) # Small delay to make AI move visible
+                ai_move_uci = self.ai_opponent.get_best_move(self.board)
+                if ai_move_uci:
+                    move = chess.Move.from_uci(ai_move_uci)
+                    self.board.push(move)
+                    self.timer.switch_turn()
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -159,9 +221,34 @@ class ChessGUI:
             self.draw_board()
             self.draw_highlights()
             self.draw_pieces()
+            self.draw_info_panel()
 
             if self.board.is_game_over():
                 self.draw_game_over(self.board.result())
+                if account_manager.current_account:
+                    game = chess.pgn.Game()
+                    game.headers["Event"] = "GUI Game"
+                    game.headers["Site"] = "Local"
+                    game.headers["Date"] = time.strftime("%Y.%m.%d")
+                    game.headers["Round"] = "1"
+                    game.headers["White"] = account_manager.current_account
+                    game.headers["Black"] = "AI" if self.vs_ai else "Human"
+                    game.headers["Result"] = self.board.result()
+
+                    if self.board.move_stack:
+                        node = game.add_main_variation(self.board.move_stack[0])
+                        for move in self.board.move_stack[1:]:
+                            node = node.add_main_variation(move)
+
+                    game_pgn = str(game)
+                    account_manager.add_game_to_history(account_manager.current_account, game_pgn)
+
+                    settings = load_settings()
+                    elo_calculator = EloCalculator(settings.get('stockfish_path'))
+                    current_elo = account_manager.get_current_account_info()['elo']
+                    new_elo = elo_calculator.calculate_elo(game_pgn, current_elo)
+                    account_manager.update_elo(account_manager.current_account, new_elo)
+                    print(f"Your new ELO is: {new_elo}")
 
             pygame.display.flip()
             self.clock.tick(60)
@@ -170,8 +257,21 @@ class ChessGUI:
 
 def main():
     board = chess.Board()
-    gui = ChessGUI(board)
-    gui.run()
+    while True:
+        print("\n=== GUI Mode ===")
+        print("1. Human vs Human")
+        print("2. Human vs AI")
+        choice = input("Choose mode (1-2): ").strip()
+        if choice == '1':
+            gui = ChessGUI(board, vs_ai=False)
+            gui.run()
+            break
+        elif choice == '2':
+            gui = ChessGUI(board, vs_ai=True)
+            gui.run()
+            break
+        else:
+            print("Invalid choice. Please enter 1 or 2.")
 
 if __name__ == "__main__":
     main()

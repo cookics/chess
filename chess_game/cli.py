@@ -1,9 +1,15 @@
 import chess
+import chess.pgn
 import os
 import random
 import time
 import pickle
 from datetime import timedelta
+from AiOpponentManager import AIOpponentManager
+from chess_game.config import load_settings
+from chess_game.stockfish_manager import StockfishManager
+from chess_game.elo_calculator import EloCalculator
+from accountcreation import account_manager
 
 class ChessTimer:
     def __init__(self, time_control_seconds=600):
@@ -97,7 +103,7 @@ def print_board(board):
     print("  a b c d e f g h")
     print("\n")
 
-def print_game_status(board, timer):
+def print_game_status(board, timer, stockfish_manager):
     """Print the current game status including timer and move information."""
     if board.turn == chess.WHITE:
         print("White's turn.")
@@ -106,15 +112,20 @@ def print_game_status(board, timer):
 
     if timer:
         print(f"Time: {timer.get_time_display()}")
-    else:
-        print()
+
+    if stockfish_manager:
+        eval = stockfish_manager.get_evaluation(board.fen())
+        if eval and eval['type'] == 'cp':
+            print(f"Evaluation: {eval['value'] / 100.0}")
+        elif eval and eval['type'] == 'mate':
+            print(f"Evaluation: Mate in {eval['value']}")
 
 def get_legal_moves_display(board):
     """Generate enhanced legal moves display with piece names, grouped by piece in logical order."""
     piece_names = {
         'P': 'Pawn', 'N': 'Knight', 'B': 'Bishop',
         'R': 'Rook', 'Q': 'Queen', 'K': 'King',
-        'p': 'Pawn', 'n': 'Knight', 'b': 'Bishop',
+        'p':'Pawn', 'n': 'Knight', 'b': 'Bishop',
         'r': 'Rook', 'q': 'Queen', 'k': 'King'
     }
 
@@ -187,9 +198,15 @@ def get_time_control():
 def main():
     board = None
     timer = None
+    vs_ai = False
+    ai_opponent = None
+    settings = load_settings()
+    stockfish_manager = StockfishManager(settings.get('stockfish_path'))
 
     print("Welcome to Chess CLI!")
-    print("Enter 'load' to load a saved game, or press Enter to start a new game.")
+    print("1. Human vs Human")
+    print("2. Human vs AI")
+    print("Enter 'load' to load a saved game.")
     choice = input("Your choice: ").strip().lower()
 
     if choice == 'load':
@@ -201,6 +218,10 @@ def main():
             board = loaded_board
             timer = loaded_timer
             timer.start_turn()
+    elif choice == '2':
+        vs_ai = True
+        ai_opponent = AIOpponentManager(settings.get('stockfish_path'))
+        ai_opponent.set_elo(1350)
 
     if not board:
         board = chess.Board()
@@ -211,7 +232,7 @@ def main():
 
     while not board.is_game_over():
         print_board(board)
-        print_game_status(board, timer)
+        print_game_status(board, timer, stockfish_manager)
 
         # Check for timeout
         if timer and timer.is_time_out(board.turn):
@@ -235,6 +256,15 @@ def main():
             legal_moves = [board.san(move) for move in board.legal_moves]
             if legal_moves:
                 print("Legal moves:", ", ".join(legal_moves[:10]))
+
+        if vs_ai and board.turn == chess.BLACK:
+            print("AI is thinking...")
+            time.sleep(1) # Small delay to make AI move visible
+            ai_move_uci = ai_opponent.get_best_move(board)
+            if ai_move_uci:
+                move = chess.Move.from_uci(ai_move_uci)
+                board.push(move)
+                continue
 
         print("\nCommands: 'random', 'save', 'resign', 'draw', 'quit'")
         move_input = input("Enter your move in SAN format (e.g., e4, Nf3) or UCI format: ").strip()
@@ -308,6 +338,31 @@ def main():
         result = board.result()
         print("Game over!")
         print(f"Result: {result}")
+
+        if account_manager.current_account:
+            game = chess.pgn.Game()
+            game.headers["Event"] = "CLI Game"
+            game.headers["Site"] = "Local"
+            game.headers["Date"] = time.strftime("%Y.%m.%d")
+            game.headers["Round"] = "1"
+            game.headers["White"] = account_manager.current_account
+            game.headers["Black"] = "AI" if vs_ai else "Human"
+            game.headers["Result"] = result
+
+            # Create PGN from the board's move stack
+            if board.move_stack:
+                node = game.add_main_variation(board.move_stack[0])
+                for move in board.move_stack[1:]:
+                    node = node.add_main_variation(move)
+
+            game_pgn = str(game)
+            account_manager.add_game_to_history(account_manager.current_account, game_pgn)
+
+            elo_calculator = EloCalculator(settings.get('stockfish_path'))
+            current_elo = account_manager.get_current_account_info()['elo']
+            new_elo = elo_calculator.calculate_elo(game_pgn, current_elo)
+            account_manager.update_elo(account_manager.current_account, new_elo)
+            print(f"Your new ELO is: {new_elo}")
 
         save_final = input("Save final position? (y/n): ").strip().lower()
         if save_final == 'y':

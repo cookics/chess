@@ -1,1 +1,7 @@
 __pycache__/
+*.pyc
+*.log
+/verification/
+run_main.py
+accounts.json
+*.pkl

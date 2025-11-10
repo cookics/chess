@@ -1,6 +1,8 @@
 from chess_game import cli, gui
 import sys
 from accountcreation import account_manager
+from chess_game.game_analyzer import GameAnalyzer
+from chess_game.config import load_settings
 
 def account_menu():
     """Handle account creation and login."""
@@ -11,6 +13,7 @@ def account_menu():
             print(f"Currently logged in as: {account_manager.current_account}")
             print(f"ELO: {account_info['elo']} | Games: {account_info['games_played']}")
             print("1. Logout")
+            print("2. Game Analysis")
         else:
             print("No account currently logged in")
             print("1. Create Account")
@@ -24,12 +27,37 @@ def account_menu():
         if account_manager.current_account:
             if choice == '1':
                 account_manager.logout()
+            elif choice == '2':
+                account_info = account_manager.get_current_account_info()
+                if 'game_history' in account_info and account_info['game_history']:
+                    print("\n--- Your Games ---")
+                    for i, game_pgn in enumerate(account_info['game_history']):
+                        print(f"{i+1}. Game {i+1}")
+
+                    game_choice = input("Choose a game to analyze: ").strip()
+                    try:
+                        game_index = int(game_choice) - 1
+                        if 0 <= game_index < len(account_info['game_history']):
+                            settings = load_settings()
+                            analyzer = GameAnalyzer(settings.get('stockfish_path'))
+                            analysis = analyzer.analyze_game(account_info['game_history'][game_index])
+                            if analysis:
+                                for line in analysis:
+                                    print(line)
+                            else:
+                                print("Could not analyze game.")
+                        else:
+                            print("Invalid game number.")
+                    except ValueError:
+                        print("Invalid input.")
+                else:
+                    print("No games in your history to analyze.")
             elif choice == '3':
                 account_manager.list_accounts()
             elif choice == '4':
                 break
             else:
-                print("Invalid choice. Please enter 1-4.")
+                print("Invalid choice.")
         else:
             if choice == '1':
                 username = input("Enter username: ").strip()
