@@ -9,7 +9,7 @@ DEFAULT_SETTINGS = {
     'save_file': 'chess_save.pkl',
     'show_legal_moves': True,
     'max_display_moves': 10,
-    'stockfish_path': None, # Path to Stockfish executable
+    'stockfish_path': "C:\\Users\\cooki\\Downloads\\stockfish-windows-x86-64-avx2\\stockfish\\stockfish-windows-x86-64-avx2.exe", # Path to Stockfish executable
 }
 
 def load_settings():
