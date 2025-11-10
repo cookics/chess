@@ -1,7 +1,7 @@
 import json
 import os
 
-ACCOUNTS_FILE = "accounts.json"
+ACCOUNTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accounts.json")
 
 class AccountManager:
     def __init__(self):
