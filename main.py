@@ -100,9 +100,9 @@ def main():
 
             choice = input("Choose mode (1-4): ").strip()
             if choice == '1':
-                cli.main()
+                cli.main(account_manager)
             elif choice == '2':
-                gui.main()
+                gui.main(account_manager)
             elif choice == '3':
                 account_menu()
             elif choice == '4':
