@@ -7,7 +7,6 @@ from AiOpponentManager import AIOpponentManager
 from chess_game.config import load_settings
 from chess_game.stockfish_manager import StockfishManager
 from chess_game.cli import ChessTimer
-from accountcreation import account_manager
 from chess_game.elo_calculator import EloCalculator
 
 # --- Constants ---
@@ -34,12 +33,13 @@ UNICODE_PIECES = {
 
 
 class ChessGUI:
-    def __init__(self, board, vs_ai=False):
+    def __init__(self, board, account_manager, vs_ai=False, ai_elo=1350):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Chess")
         self.clock = pygame.time.Clock()
         self.board = board
+        self.account_manager = account_manager
         self.selected_square = None
         self.legal_moves_for_selected_piece = []
         self.vs_ai = vs_ai
@@ -49,7 +49,7 @@ class ChessGUI:
         self.timer.start_turn()
         if self.vs_ai:
             self.ai_opponent = AIOpponentManager(stockfish_path=settings.get('stockfish_path'))
-            self.ai_opponent.set_elo(1350)  # Default ELO
+            self.ai_opponent.set_elo(ai_elo)
 
         # A larger font is needed for the unicode characters to be visible
         # Load the font from the bundled assets folder
@@ -120,6 +120,13 @@ class ChessGUI:
         info_panel_rect = pygame.Rect(BOARD_WIDTH, 0, INFO_PANEL_WIDTH, HEIGHT)
         panel_color = (40, 40, 40)
         pygame.draw.rect(self.screen, panel_color, info_panel_rect)
+
+        # Display Player Info
+        if self.account_manager.current_account:
+            info = self.account_manager.get_current_account_info()
+            player_text = f"{info['username']} ({info['elo']})"
+            player_surface = self.info_font.render(player_text, True, WHITE_COLOR)
+            self.screen.blit(player_surface, (BOARD_WIDTH + 10, 50))
 
         # Display timers
         white_time_text = self.timer.format_time(self.timer.get_time_left(chess.WHITE))
@@ -225,13 +232,13 @@ class ChessGUI:
 
             if self.board.is_game_over():
                 self.draw_game_over(self.board.result())
-                if account_manager.current_account:
+                if self.account_manager.current_account:
                     game = chess.pgn.Game()
                     game.headers["Event"] = "GUI Game"
                     game.headers["Site"] = "Local"
                     game.headers["Date"] = time.strftime("%Y.%m.%d")
                     game.headers["Round"] = "1"
-                    game.headers["White"] = account_manager.current_account
+                    game.headers["White"] = self.account_manager.current_account
                     game.headers["Black"] = "AI" if self.vs_ai else "Human"
                     game.headers["Result"] = self.board.result()
 
@@ -241,13 +248,13 @@ class ChessGUI:
                             node = node.add_main_variation(move)
 
                     game_pgn = str(game)
-                    account_manager.add_game_to_history(account_manager.current_account, game_pgn)
+                    self.account_manager.add_game_to_history(self.account_manager.current_account, game_pgn)
 
                     settings = load_settings()
                     elo_calculator = EloCalculator(settings.get('stockfish_path'))
-                    current_elo = account_manager.get_current_account_info()['elo']
+                    current_elo = self.account_manager.get_current_account_info()['elo']
                     new_elo = elo_calculator.calculate_elo(game_pgn, current_elo)
-                    account_manager.update_elo(account_manager.current_account, new_elo)
+                    self.account_manager.update_elo(self.account_manager.current_account, new_elo)
                     print(f"Your new ELO is: {new_elo}")
 
             pygame.display.flip()
@@ -255,7 +262,7 @@ class ChessGUI:
 
         pygame.quit()
 
-def main():
+def main(account_manager):
     board = chess.Board()
     while True:
         print("\n=== GUI Mode ===")
@@ -263,11 +270,25 @@ def main():
         print("2. Human vs AI")
         choice = input("Choose mode (1-2): ").strip()
         if choice == '1':
-            gui = ChessGUI(board, vs_ai=False)
+            gui = ChessGUI(board, account_manager, vs_ai=False)
             gui.run()
             break
         elif choice == '2':
-            gui = ChessGUI(board, vs_ai=True)
+            ai_elo = 1350
+            while True:
+                try:
+                    elo_input = input("Enter AI ELO (1350-2850), or press Enter for default (1350): ").strip()
+                    if not elo_input:
+                        break
+                    elo = int(elo_input)
+                    if 1350 <= elo <= 2850:
+                        ai_elo = elo
+                        break
+                    else:
+                        print("ELO must be between 1350 and 2850.")
+                except ValueError:
+                    print("Invalid ELO. Please enter a number.")
+            gui = ChessGUI(board, account_manager, vs_ai=True, ai_elo=ai_elo)
             gui.run()
             break
         else:

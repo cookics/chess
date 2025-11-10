@@ -84,9 +84,9 @@ def main():
     """
     if len(sys.argv) > 1:
         if sys.argv[1] == 'cli':
-            cli.main()
+            cli.main(account_manager)
         elif sys.argv[1] == 'gui':
-            gui.main()
+            gui.main(account_manager)
         else:
             print(f"Invalid argument: {sys.argv[1]}")
             print("Usage: python main.py [cli|gui]")

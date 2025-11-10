@@ -9,7 +9,6 @@ from AiOpponentManager import AIOpponentManager
 from chess_game.config import load_settings
 from chess_game.stockfish_manager import StockfishManager
 from chess_game.elo_calculator import EloCalculator
-from accountcreation import account_manager
 
 class ChessTimer:
     def __init__(self, time_control_seconds=600):
@@ -195,7 +194,7 @@ def get_time_control():
         else:
             print("Invalid choice. Please enter 1-6.")
 
-def main():
+def main(account_manager):
     board = None
     timer = None
     vs_ai = False
@@ -221,7 +220,16 @@ def main():
     elif choice == '2':
         vs_ai = True
         ai_opponent = AIOpponentManager(settings.get('stockfish_path'))
-        ai_opponent.set_elo(1350)
+        while True:
+            try:
+                elo = int(input("Enter AI ELO (1350-2850): ").strip())
+                if 1350 <= elo <= 2850:
+                    ai_opponent.set_elo(elo)
+                    break
+                else:
+                    print("ELO must be between 1350 and 2850.")
+            except ValueError:
+                print("Invalid ELO. Please enter a number.")
 
     if not board:
         board = chess.Board()

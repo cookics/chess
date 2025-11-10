@@ -71,7 +71,9 @@ class AccountManager:
     def get_current_account_info(self):
         """Get information about the currently logged in account."""
         if self.current_account and self.current_account in self.accounts:
-            return self.accounts[self.current_account]
+            account_info = self.accounts[self.current_account].copy()
+            account_info['username'] = self.current_account
+            return account_info
         return None
 
     def update_elo(self, username, new_elo):
