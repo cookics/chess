@@ -74,11 +74,9 @@ class GameClient(BaseClient):
         self.account_manager = account_manager
 
 # --- Constants ---
-WIDTH = 800
+WIDTH = 1024
 BOARD_WIDTH = 512
-INFO_PANEL_WIDTH = WIDTH - BOARD_WIDTH
-EVAL_BAR_WIDTH = 40
-INFO_PANEL_HEIGHT = 50
+INFO_PANEL_WIDTH = (WIDTH - BOARD_WIDTH) // 2
 SQUARE_SIZE = BOARD_WIDTH // 8
 BOARD_HEIGHT = 8 * SQUARE_SIZE
 HEIGHT = BOARD_HEIGHT
@@ -112,8 +110,11 @@ class ChessGUI:
         self.player1_username = None
         self.player2_username = None
 
-        self.resign_button_rect = pygame.Rect(BOARD_WIDTH + 10, HEIGHT - 100, 120, 40)
-        self.draw_button_rect = pygame.Rect(BOARD_WIDTH + 140, HEIGHT - 100, 120, 40)
+        self.white_resign_button_rect = pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH + 10, HEIGHT - 100, 120, 40)
+        self.white_draw_button_rect = pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH + 140, HEIGHT - 100, 120, 40)
+        self.black_resign_button_rect = pygame.Rect(10, HEIGHT - 100, 120, 40)
+        self.black_draw_button_rect = pygame.Rect(140, HEIGHT - 100, 120, 40)
+
 
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
         try:
@@ -121,12 +122,14 @@ class ChessGUI:
             self.game_over_font = pygame.font.Font(font_path, 50)
             self.info_font = pygame.font.Font(font_path, 18)
             self.login_font = pygame.font.Font(font_path, 24)
+            self.captured_font = pygame.font.Font(font_path, 24)
         except pygame.error:
             print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
             self.game_over_font = pygame.font.SysFont(None, 60)
             self.info_font = pygame.font.SysFont(None, 24)
             self.login_font = pygame.font.SysFont(None, 30)
+            self.captured_font = pygame.font.SysFont(None, 30)
     def show_login_screen(self):
         accounts = list(self.account_manager.accounts.keys())
         white_player_rects = []
@@ -134,8 +137,8 @@ class ChessGUI:
 
         y_offset = 50
         for i, acc in enumerate(accounts):
-            white_player_rects.append(pygame.Rect(BOARD_WIDTH + 10, y_offset + i * 30, 120, 25))
-            black_player_rects.append(pygame.Rect(BOARD_WIDTH + 140, y_offset + i * 30, 120, 25))
+            white_player_rects.append(pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH + 10, y_offset + i * 30, 120, 25))
+            black_player_rects.append(pygame.Rect(10, y_offset + i * 30, 120, 25))
 
         while self.player1_username is None or self.player2_username is None:
             for event in pygame.event.get():
@@ -155,8 +158,8 @@ class ChessGUI:
             # Draw titles
             white_title = self.login_font.render("White", True, WHITE_COLOR)
             black_title = self.login_font.render("Black", True, WHITE_COLOR)
-            self.screen.blit(white_title, (BOARD_WIDTH + 10, 10))
-            self.screen.blit(black_title, (BOARD_WIDTH + 140, 10))
+            self.screen.blit(white_title, (INFO_PANEL_WIDTH + BOARD_WIDTH + 10, 10))
+            self.screen.blit(black_title, (10, 10))
 
             for i, acc in enumerate(accounts):
                 # White buttons
@@ -184,9 +187,9 @@ class ChessGUI:
     def pixel_to_square(self, pos):
         if not (0 <= pos[1] < BOARD_HEIGHT):
             return None
-        if not (0 <= pos[0] < BOARD_WIDTH):
+        if not (INFO_PANEL_WIDTH <= pos[0] < INFO_PANEL_WIDTH + BOARD_WIDTH):
             return None
-        col = pos[0] // SQUARE_SIZE
+        col = (pos[0] - INFO_PANEL_WIDTH) // SQUARE_SIZE
         row = pos[1] // SQUARE_SIZE
         return chess.square(col, 7 - row)
 
@@ -194,7 +197,7 @@ class ChessGUI:
         for row in range(8):
             for col in range(8):
                 color = LIGHT_SQUARE if (row + col) % 2 == 0 else DARK_SQUARE
-                pygame.draw.rect(self.screen, color, (col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
+                pygame.draw.rect(self.screen, color, (INFO_PANEL_WIDTH + col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
 
     def draw_highlights(self):
         if self.selected_square is not None:
@@ -202,14 +205,14 @@ class ChessGUI:
             row = 7 - chess.square_rank(self.selected_square)
             highlight_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             highlight_surface.fill(HIGHLIGHT_COLOR)
-            self.screen.blit(highlight_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+            self.screen.blit(highlight_surface, (INFO_PANEL_WIDTH + col * SQUARE_SIZE, row * SQUARE_SIZE))
 
         for move in self.legal_moves_for_selected_piece:
             col = chess.square_file(move.to_square)
             row = 7 - chess.square_rank(move.to_square)
             dot_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             pygame.draw.circle(dot_surface, LEGAL_MOVE_DOT_COLOR, (SQUARE_SIZE//2, SQUARE_SIZE//2), SQUARE_SIZE // 6)
-            self.screen.blit(dot_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+            self.screen.blit(dot_surface, (INFO_PANEL_WIDTH + col * SQUARE_SIZE, row * SQUARE_SIZE))
 
     def draw_pieces(self):
         for row in range(8):
@@ -220,24 +223,37 @@ class ChessGUI:
                     piece_symbol = UNICODE_PIECES[piece.symbol()]
                     color = BLACK_COLOR
                     text = self.font.render(piece_symbol, True, color)
-                    text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
+                    text_rect = text.get_rect(center=(INFO_PANEL_WIDTH + col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
 
     def draw_game_info(self):
         # This will be the new side panel
-        info_panel_rect = pygame.Rect(BOARD_WIDTH, 0, INFO_PANEL_WIDTH, HEIGHT)
-        pygame.draw.rect(self.screen, (40, 40, 40), info_panel_rect)
+        white_panel_rect = pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH, 0, INFO_PANEL_WIDTH, HEIGHT)
+        black_panel_rect = pygame.Rect(0, 0, INFO_PANEL_WIDTH, HEIGHT)
+        pygame.draw.rect(self.screen, (40, 40, 40), white_panel_rect)
+        pygame.draw.rect(self.screen, (40, 40, 40), black_panel_rect)
 
+        if self.player1_username and self.player2_username:
+            white_player_info = self.account_manager.accounts[self.player1_username]
+            black_player_info = self.account_manager.accounts[self.player2_username]
 
+            white_player_text = f"{self.player1_username} ({white_player_info['elo']})"
+            black_player_text = f"{self.player2_username} ({black_player_info['elo']})"
+
+            white_player_surface = self.info_font.render(white_player_text, True, WHITE_COLOR)
+            black_player_surface = self.info_font.render(black_player_text, True, WHITE_COLOR)
+
+            self.screen.blit(white_player_surface, (INFO_PANEL_WIDTH + BOARD_WIDTH + 10, 10))
+            self.screen.blit(black_player_surface, (10, 10))
         if self.game_state and self.game_state["white_time"] is not None:
             white_time_str = str(timedelta(seconds=int(self.game_state["white_time"])))[2:]
             black_time_str = str(timedelta(seconds=int(self.game_state["black_time"])))[2:]
 
-            white_timer_surface = self.info_font.render(f"White: {white_time_str}", True, WHITE_COLOR)
-            black_timer_surface = self.info_font.render(f"Black: {black_time_str}", True, WHITE_COLOR)
+            white_timer_surface = self.info_font.render(f"Time: {white_time_str}", True, WHITE_COLOR)
+            black_timer_surface = self.info_font.render(f"Time: {black_time_str}", True, WHITE_COLOR)
 
-            self.screen.blit(white_timer_surface, (BOARD_WIDTH + 10, 10))
-            self.screen.blit(black_timer_surface, (BOARD_WIDTH + 10, 40))
+            self.screen.blit(white_timer_surface, (INFO_PANEL_WIDTH + BOARD_WIDTH + 10, 40))
+            self.screen.blit(black_timer_surface, (10, 40))
 
 
         if self.game_state and "evaluation" in self.game_state:
@@ -249,24 +265,47 @@ class ChessGUI:
                 else:
                     adv_text = f"Advantage: +{abs(adv/100.0)} for {'White' if adv > 0 else 'Black'}"
                 adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
-                self.screen.blit(adv_surface, (BOARD_WIDTH + 10, 70))
+                self.screen.blit(adv_surface, (INFO_PANEL_WIDTH + 10, 10))
+
+        if self.game_state and "captured_pieces" in self.game_state:
+            white_captured = self.game_state["captured_pieces"]["white"]
+            black_captured = self.game_state["captured_pieces"]["black"]
+
+            white_captured_text = " ".join([UNICODE_PIECES[p] for p in white_captured])
+            black_captured_text = " ".join([UNICODE_PIECES[p] for p in black_captured])
+
+            white_captured_surface = self.captured_font.render(white_captured_text, True, WHITE_COLOR)
+            black_captured_surface = self.captured_font.render(black_captured_text, True, WHITE_COLOR)
+
+            self.screen.blit(white_captured_surface, (INFO_PANEL_WIDTH + BOARD_WIDTH + 10, 70))
+            self.screen.blit(black_captured_surface, (10, 70))
 
         # Draw Resign and Draw buttons
-        pygame.draw.rect(self.screen, (200, 0, 0), self.resign_button_rect)
-        pygame.draw.rect(self.screen, (0, 200, 0), self.draw_button_rect)
+        pygame.draw.rect(self.screen, (200, 0, 0), self.white_resign_button_rect)
+        pygame.draw.rect(self.screen, (0, 200, 0), self.white_draw_button_rect)
+        pygame.draw.rect(self.screen, (200, 0, 0), self.black_resign_button_rect)
+        pygame.draw.rect(self.screen, (0, 200, 0), self.black_draw_button_rect)
 
         resign_text = self.info_font.render("Resign", True, WHITE_COLOR)
         draw_text = self.info_font.render("Draw", True, WHITE_COLOR)
 
-        self.screen.blit(resign_text, (self.resign_button_rect.x + 30, self.resign_button_rect.y + 10))
-        self.screen.blit(draw_text, (self.draw_button_rect.x + 40, self.draw_button_rect.y + 10))
+        self.screen.blit(resign_text, (self.white_resign_button_rect.x + 30, self.white_resign_button_rect.y + 10))
+        self.screen.blit(draw_text, (self.white_draw_button_rect.x + 40, self.white_draw_button_rect.y + 10))
+        self.screen.blit(resign_text, (self.black_resign_button_rect.x + 30, self.black_resign_button_rect.y + 10))
+        self.screen.blit(draw_text, (self.black_draw_button_rect.x + 40, self.black_draw_button_rect.y + 10))
 
 
     def handle_mouse_click(self, pos):
-        if self.resign_button_rect.collidepoint(pos):
+        if self.white_resign_button_rect.collidepoint(pos):
             self.game_client.send_command("resign")
             return
-        if self.draw_button_rect.collidepoint(pos):
+        if self.white_draw_button_rect.collidepoint(pos):
+            self.game_client.send_command("draw")
+            return
+        if self.black_resign_button_rect.collidepoint(pos):
+            self.game_client.send_command("resign")
+            return
+        if self.black_draw_button_rect.collidepoint(pos):
             self.game_client.send_command("draw")
             return
 
@@ -304,16 +343,12 @@ class ChessGUI:
         self.screen.blit(text_surface, text_rect)
 
     def draw_draw_offer(self):
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 128))
-        self.screen.blit(overlay, (0,0))
-
-        text_surface = self.game_over_font.render("Draw Offer", True, WHITE_COLOR)
-        text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
-        self.screen.blit(text_surface, text_rect)
-
-        accept_button = pygame.Rect(WIDTH // 2 - 150, HEIGHT // 2 + 20, 120, 40)
-        decline_button = pygame.Rect(WIDTH // 2 + 30, HEIGHT // 2 + 20, 120, 40)
+        if self.game_state["draw_offer"] == chess.WHITE:
+            accept_button = pygame.Rect(10, HEIGHT - 150, 120, 40)
+            decline_button = pygame.Rect(140, HEIGHT - 150, 120, 40)
+        else:
+            accept_button = pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH + 10, HEIGHT - 150, 120, 40)
+            decline_button = pygame.Rect(INFO_PANEL_WIDTH + BOARD_WIDTH + 140, HEIGHT - 150, 120, 40)
 
         pygame.draw.rect(self.screen, (0, 150, 0), accept_button)
         pygame.draw.rect(self.screen, (150, 0, 0), decline_button)

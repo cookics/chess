@@ -70,6 +70,7 @@ class GameServer(socketserver.BaseRequestHandler):
     vs_ai = False
     lock = threading.Lock()
     draw_offer = None
+    captured_pieces = {"white": [], "black": []}
 
     def handle(self):
         while True:
@@ -144,13 +145,21 @@ class GameServer(socketserver.BaseRequestHandler):
             "evaluation": eval_data,
             "termination_reason": termination_reason,
             "pgn": pgn,
-            "draw_offer": self.draw_offer
+            "draw_offer": self.draw_offer,
+            "captured_pieces": self.captured_pieces
         }
 
     def make_move(self, move_uci):
         try:
             move = chess.Move.from_uci(move_uci)
             if move in GameServer.board.legal_moves:
+                if self.board.is_capture(move):
+                    captured_piece = self.board.piece_at(move.to_square)
+                    if captured_piece:
+                        if self.board.turn == chess.WHITE:
+                            self.captured_pieces["white"].append(captured_piece.symbol())
+                        else:
+                            self.captured_pieces["black"].append(captured_piece.symbol())
                 GameServer.board.push(move)
                 GameServer.node = GameServer.node.add_variation(move)
                 GameServer.timer.switch_turn()
@@ -170,6 +179,13 @@ class GameServer(socketserver.BaseRequestHandler):
             if ai_move_uci:
                 ai_move = chess.Move.from_uci(ai_move_uci)
                 if ai_move in GameServer.board.legal_moves:
+                    if self.board.is_capture(ai_move):
+                        captured_piece = self.board.piece_at(ai_move.to_square)
+                        if captured_piece:
+                            if self.board.turn == chess.WHITE:
+                                self.captured_pieces["white"].append(captured_piece.symbol())
+                            else:
+                                self.captured_pieces["black"].append(captured_piece.symbol())
                     GameServer.board.push(ai_move)
                     GameServer.node = GameServer.node.add_variation(ai_move)
                     GameServer.timer.switch_turn()
