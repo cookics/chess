@@ -89,14 +89,13 @@ class GameServer(socketserver.BaseRequestHandler):
                         move = request.get("move")
                         response = self.make_move(move)
                     elif command == "resign":
-                        self.board.is_game_over(claim_draw=False)
                         self.board.result = "0-1" if self.board.turn == chess.WHITE else "1-0"
                         response = {"status": "ok"}
                     elif command == "draw":
                         self.draw_offer = self.board.turn
                         response = {"status": "ok"}
                     elif command == "accept_draw":
-                        self.board.is_game_over(claim_draw=True)
+                        self.board.result = "1/2-1/2"
                         response = {"status": "ok"}
                     elif command == "decline_draw":
                         self.draw_offer = None
@@ -130,6 +129,12 @@ class GameServer(socketserver.BaseRequestHandler):
                 termination_reason = "75-move rule"
             elif GameServer.board.is_fivefold_repetition():
                 termination_reason = "fivefold repetition"
+            elif GameServer.board.result() == "1-0":
+                termination_reason = "resignation"
+            elif GameServer.board.result() == "0-1":
+                termination_reason = "resignation"
+            elif GameServer.board.result() == "1/2-1/2":
+                termination_reason = "agreement"
 
             GameServer.game.headers["Result"] = GameServer.board.result()
             pgn = str(GameServer.game)

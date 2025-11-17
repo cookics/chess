@@ -265,7 +265,7 @@ class ChessGUI:
                 else:
                     adv_text = f"Advantage: +{abs(adv/100.0)} for {'White' if adv > 0 else 'Black'}"
                 adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
-                self.screen.blit(adv_surface, (INFO_PANEL_WIDTH + 10, 10))
+                self.screen.blit(adv_surface, (10, 100))
 
         if self.game_state and "captured_pieces" in self.game_state:
             white_captured = self.game_state["captured_pieces"]["white"]
@@ -385,7 +385,8 @@ class ChessGUI:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if self.game_state["is_game_over"]:
+                    game_is_over = self.game_state["is_game_over"] or self.game_state["result"] != "*"
+                    if game_is_over:
                         continue
                     if is_our_turn_to_respond:
                         accept_button, decline_button = self.draw_draw_offer()
@@ -405,7 +406,8 @@ class ChessGUI:
             if is_our_turn_to_respond:
                 self.draw_draw_offer()
 
-            if self.game_state["is_game_over"]:
+            game_is_over = self.game_state["is_game_over"] or self.game_state["result"] != "*"
+            if game_is_over:
                 result = self.game_state["result"]
                 termination = self.game_state.get("termination_reason", "")
                 if result == "1-0":
