@@ -50,7 +50,19 @@ class BaseClient:
         except (BrokenPipeError, ConnectionResetError, json.JSONDecodeError):
             self.socket = None
             return None
-
+    def send_command(self, command, **kwargs):
+        if not self.socket:
+            return None
+        try:
+            request_data = {"command": command}
+            request_data.update(kwargs)
+            request = json.dumps(request_data)
+            self.socket.sendall(request.encode('utf-8'))
+            response = self.socket.recv(4096).decode('utf-8')
+            return json.loads(response)
+        except (BrokenPipeError, ConnectionResetError, json.JSONDecodeError):
+            self.socket = None
+            return None
     def close(self):
         if self.socket:
             self.socket.close()
@@ -62,12 +74,14 @@ class GameClient(BaseClient):
         self.account_manager = account_manager
 
 # --- Constants ---
-WIDTH = 600
+WIDTH = 800
+BOARD_WIDTH = 512
+INFO_PANEL_WIDTH = WIDTH - BOARD_WIDTH
 EVAL_BAR_WIDTH = 40
 INFO_PANEL_HEIGHT = 50
-SQUARE_SIZE = (WIDTH - EVAL_BAR_WIDTH) // 8
+SQUARE_SIZE = BOARD_WIDTH // 8
 BOARD_HEIGHT = 8 * SQUARE_SIZE
-HEIGHT = BOARD_HEIGHT + 2 * INFO_PANEL_HEIGHT
+HEIGHT = BOARD_HEIGHT
 
 # Colors
 WHITE_COLOR = (255, 255, 255)
@@ -98,91 +112,68 @@ class ChessGUI:
         self.player1_username = None
         self.player2_username = None
 
+        self.resign_button_rect = pygame.Rect(BOARD_WIDTH + 10, HEIGHT - 100, 120, 40)
+        self.draw_button_rect = pygame.Rect(BOARD_WIDTH + 140, HEIGHT - 100, 120, 40)
+
         font_path = os.path.join(os.path.dirname(__file__), 'assets', 'DejaVuSans.ttf')
         try:
             self.font = pygame.font.Font(font_path, 72)
             self.game_over_font = pygame.font.Font(font_path, 50)
             self.info_font = pygame.font.Font(font_path, 18)
+            self.login_font = pygame.font.Font(font_path, 24)
         except pygame.error:
             print(f"Warning: Could not load bundled font at {font_path}. Falling back to default.")
             self.font = pygame.font.SysFont(None, 72)
             self.game_over_font = pygame.font.SysFont(None, 60)
             self.info_font = pygame.font.SysFont(None, 24)
-
+            self.login_font = pygame.font.SysFont(None, 30)
     def show_login_screen(self):
-        login_font = pygame.font.SysFont(None, 36)
-        input_font = pygame.font.SysFont(None, 28)
-        clock = pygame.time.Clock()
+        accounts = list(self.account_manager.accounts.keys())
+        white_player_rects = []
+        black_player_rects = []
 
-        p1_input_rect = pygame.Rect(WIDTH // 2 - 150, HEIGHT // 2 - 60, 300, 32)
-        p2_input_rect = pygame.Rect(WIDTH // 2 - 150, HEIGHT // 2, 300, 32)
+        y_offset = 50
+        for i, acc in enumerate(accounts):
+            white_player_rects.append(pygame.Rect(BOARD_WIDTH + 10, y_offset + i * 30, 120, 25))
+            black_player_rects.append(pygame.Rect(BOARD_WIDTH + 140, y_offset + i * 30, 120, 25))
 
-        p1_text = ''
-        p2_text = ''
-        active_p1 = True
-
-        logging_in = True
-        while logging_in:
+        while self.player1_username is None or self.player2_username is None:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     return False
-
                 if event.type == pygame.MOUSEBUTTONDOWN:
-                    active_p1 = p1_input_rect.collidepoint(event.pos)
+                    for i, rect in enumerate(white_player_rects):
+                        if rect.collidepoint(event.pos):
+                            self.player1_username = accounts[i]
+                    for i, rect in enumerate(black_player_rects):
+                        if rect.collidepoint(event.pos):
+                            self.player2_username = accounts[i]
 
-                if event.type == pygame.KEYDOWN:
-                    if active_p1:
-                        if event.key == pygame.K_RETURN:
-                            active_p1 = False
-                        elif event.key == pygame.K_BACKSPACE:
-                            p1_text = p1_text[:-1]
-                        else:
-                            p1_text += event.unicode
-                    else:
-                        if event.key == pygame.K_RETURN:
-                            if p1_text in self.account_manager.accounts and p2_text in self.account_manager.accounts:
-                                self.player1_username = p1_text
-                                self.player2_username = p2_text
-                                print(f"Player 1 logged in as: {self.player1_username}")
-                                print(f"Player 2 logged in as: {self.player2_username}")
-                                logging_in = False
-                            else:
-                                print("Invalid username for one or both players. Please try again.")
-                                p1_text = ''
-                                p2_text = ''
-                                active_p1 = True
-                        elif event.key == pygame.K_BACKSPACE:
-                            p2_text = p2_text[:-1]
-                        else:
-                            p2_text += event.unicode
+            self.screen.fill((20,20,20))
 
-            self.screen.fill(WHITE_COLOR)
-            title_text = login_font.render("Player Login", True, BLACK_COLOR)
-            title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 120))
-            self.screen.blit(title_text, title_rect)
+            # Draw titles
+            white_title = self.login_font.render("White", True, WHITE_COLOR)
+            black_title = self.login_font.render("Black", True, WHITE_COLOR)
+            self.screen.blit(white_title, (BOARD_WIDTH + 10, 10))
+            self.screen.blit(black_title, (BOARD_WIDTH + 140, 10))
 
-            pygame.draw.rect(self.screen, BLACK_COLOR, p1_input_rect, 2)
-            pygame.draw.rect(self.screen, BLACK_COLOR, p2_input_rect, 2)
+            for i, acc in enumerate(accounts):
+                # White buttons
+                color = (0, 150, 0) if self.player1_username == acc else (50, 50, 50)
+                pygame.draw.rect(self.screen, color, white_player_rects[i])
+                text = self.info_font.render(acc, True, WHITE_COLOR)
+                self.screen.blit(text, (white_player_rects[i].x + 5, white_player_rects[i].y + 5))
 
-            p1_surface = input_font.render(p1_text, True, BLACK_COLOR)
-            p2_surface = input_font.render(p2_text, True, BLACK_COLOR)
-
-            self.screen.blit(p1_surface, (p1_input_rect.x + 5, p1_input_rect.y + 5))
-            self.screen.blit(p2_surface, (p2_input_rect.x + 5, p2_input_rect.y + 5))
-
-            if active_p1:
-                pygame.draw.rect(self.screen, (0, 0, 200), p1_input_rect, 3)
-            else:
-                pygame.draw.rect(self.screen, (0, 0, 200), p2_input_rect, 3)
-
-            inst1 = input_font.render("Player 1 (White):", True, BLACK_COLOR)
-            inst2 = input_font.render("Player 2 (Black):", True, BLACK_COLOR)
-            self.screen.blit(inst1, (p1_input_rect.x, p1_input_rect.y - 25))
-            self.screen.blit(inst2, (p2_input_rect.x, p2_input_rect.y - 25))
+                # Black buttons
+                color = (0, 150, 0) if self.player2_username == acc else (50, 50, 50)
+                pygame.draw.rect(self.screen, color, black_player_rects[i])
+                text = self.info_font.render(acc, True, WHITE_COLOR)
+                self.screen.blit(text, (black_player_rects[i].x + 5, black_player_rects[i].y + 5))
 
             pygame.display.flip()
-            clock.tick(30)
+            self.clock.tick(30)
+
         return True
 
     def update_state(self):
@@ -191,19 +182,19 @@ class ChessGUI:
             self.board = chess.Board(self.game_state["fen"])
 
     def pixel_to_square(self, pos):
-        if not (INFO_PANEL_HEIGHT <= pos[1] < HEIGHT - INFO_PANEL_HEIGHT):
+        if not (0 <= pos[1] < BOARD_HEIGHT):
             return None
-        if not (EVAL_BAR_WIDTH <= pos[0] < WIDTH):
+        if not (0 <= pos[0] < BOARD_WIDTH):
             return None
-        col = (pos[0] - EVAL_BAR_WIDTH) // SQUARE_SIZE
-        row = (pos[1] - INFO_PANEL_HEIGHT) // SQUARE_SIZE
+        col = pos[0] // SQUARE_SIZE
+        row = pos[1] // SQUARE_SIZE
         return chess.square(col, 7 - row)
 
     def draw_board(self):
         for row in range(8):
             for col in range(8):
                 color = LIGHT_SQUARE if (row + col) % 2 == 0 else DARK_SQUARE
-                pygame.draw.rect(self.screen, color, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
+                pygame.draw.rect(self.screen, color, (col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
 
     def draw_highlights(self):
         if self.selected_square is not None:
@@ -211,14 +202,14 @@ class ChessGUI:
             row = 7 - chess.square_rank(self.selected_square)
             highlight_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             highlight_surface.fill(HIGHLIGHT_COLOR)
-            self.screen.blit(highlight_surface, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE))
+            self.screen.blit(highlight_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
 
         for move in self.legal_moves_for_selected_piece:
             col = chess.square_file(move.to_square)
             row = 7 - chess.square_rank(move.to_square)
             dot_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
             pygame.draw.circle(dot_surface, LEGAL_MOVE_DOT_COLOR, (SQUARE_SIZE//2, SQUARE_SIZE//2), SQUARE_SIZE // 6)
-            self.screen.blit(dot_surface, (EVAL_BAR_WIDTH + col * SQUARE_SIZE, INFO_PANEL_HEIGHT + row * SQUARE_SIZE))
+            self.screen.blit(dot_surface, (col * SQUARE_SIZE, row * SQUARE_SIZE))
 
     def draw_pieces(self):
         for row in range(8):
@@ -229,20 +220,25 @@ class ChessGUI:
                     piece_symbol = UNICODE_PIECES[piece.symbol()]
                     color = BLACK_COLOR
                     text = self.font.render(piece_symbol, True, color)
-                    text_rect = text.get_rect(center=(EVAL_BAR_WIDTH + col * SQUARE_SIZE + SQUARE_SIZE // 2, INFO_PANEL_HEIGHT + row * SQUARE_SIZE + SQUARE_SIZE // 2))
+                    text_rect = text.get_rect(center=(col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2))
                     self.screen.blit(text, text_rect)
 
     def draw_game_info(self):
-        self.screen.fill(BLACK_COLOR, pygame.Rect(0, 0, WIDTH, INFO_PANEL_HEIGHT))
-        self.screen.fill(BLACK_COLOR, pygame.Rect(0, HEIGHT - INFO_PANEL_HEIGHT, WIDTH, INFO_PANEL_HEIGHT))
+        # This will be the new side panel
+        info_panel_rect = pygame.Rect(BOARD_WIDTH, 0, INFO_PANEL_WIDTH, HEIGHT)
+        pygame.draw.rect(self.screen, (40, 40, 40), info_panel_rect)
+
 
         if self.game_state and self.game_state["white_time"] is not None:
             white_time_str = str(timedelta(seconds=int(self.game_state["white_time"])))[2:]
             black_time_str = str(timedelta(seconds=int(self.game_state["black_time"])))[2:]
-            timer_text = f"White: {white_time_str} | Black: {black_time_str}"
-            timer_surface = self.info_font.render(timer_text, True, WHITE_COLOR)
-            timer_rect = timer_surface.get_rect(center=(WIDTH // 2, INFO_PANEL_HEIGHT // 2))
-            self.screen.blit(timer_surface, timer_rect)
+
+            white_timer_surface = self.info_font.render(f"White: {white_time_str}", True, WHITE_COLOR)
+            black_timer_surface = self.info_font.render(f"Black: {black_time_str}", True, WHITE_COLOR)
+
+            self.screen.blit(white_timer_surface, (BOARD_WIDTH + 10, 10))
+            self.screen.blit(black_timer_surface, (BOARD_WIDTH + 10, 40))
+
 
         if self.game_state and "evaluation" in self.game_state:
             evaluation = self.game_state["evaluation"]
@@ -253,10 +249,27 @@ class ChessGUI:
                 else:
                     adv_text = f"Advantage: +{abs(adv/100.0)} for {'White' if adv > 0 else 'Black'}"
                 adv_surface = self.info_font.render(adv_text, True, WHITE_COLOR)
-                adv_rect = adv_surface.get_rect(center=(WIDTH // 2, HEIGHT - INFO_PANEL_HEIGHT // 2))
-                self.screen.blit(adv_surface, adv_rect)
+                self.screen.blit(adv_surface, (BOARD_WIDTH + 10, 70))
+
+        # Draw Resign and Draw buttons
+        pygame.draw.rect(self.screen, (200, 0, 0), self.resign_button_rect)
+        pygame.draw.rect(self.screen, (0, 200, 0), self.draw_button_rect)
+
+        resign_text = self.info_font.render("Resign", True, WHITE_COLOR)
+        draw_text = self.info_font.render("Draw", True, WHITE_COLOR)
+
+        self.screen.blit(resign_text, (self.resign_button_rect.x + 30, self.resign_button_rect.y + 10))
+        self.screen.blit(draw_text, (self.draw_button_rect.x + 40, self.draw_button_rect.y + 10))
+
 
     def handle_mouse_click(self, pos):
+        if self.resign_button_rect.collidepoint(pos):
+            self.game_client.send_command("resign")
+            return
+        if self.draw_button_rect.collidepoint(pos):
+            self.game_client.send_command("draw")
+            return
+
         clicked_square = self.pixel_to_square(pos)
         if clicked_square is None:
             return
@@ -290,16 +303,28 @@ class ChessGUI:
         text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
         self.screen.blit(text_surface, text_rect)
 
-    def draw_evaluation_bar(self):
-        if self.game_state and "evaluation" in self.game_state:
-            evaluation = self.game_state["evaluation"]
-            if evaluation and evaluation['type'] == 'cp':
-                eval_value = max(-1000, min(1000, evaluation['value']))
-                white_height = (BOARD_HEIGHT / 2) * (1 - eval_value / 1000)
-                white_rect = pygame.Rect(0, INFO_PANEL_HEIGHT, EVAL_BAR_WIDTH, white_height)
-                black_rect = pygame.Rect(0, INFO_PANEL_HEIGHT + white_height, EVAL_BAR_WIDTH, BOARD_HEIGHT - white_height)
-                pygame.draw.rect(self.screen, WHITE_COLOR, white_rect)
-                pygame.draw.rect(self.screen, BLACK_COLOR, black_rect)
+    def draw_draw_offer(self):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))
+        self.screen.blit(overlay, (0,0))
+
+        text_surface = self.game_over_font.render("Draw Offer", True, WHITE_COLOR)
+        text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        self.screen.blit(text_surface, text_rect)
+
+        accept_button = pygame.Rect(WIDTH // 2 - 150, HEIGHT // 2 + 20, 120, 40)
+        decline_button = pygame.Rect(WIDTH // 2 + 30, HEIGHT // 2 + 20, 120, 40)
+
+        pygame.draw.rect(self.screen, (0, 150, 0), accept_button)
+        pygame.draw.rect(self.screen, (150, 0, 0), decline_button)
+
+        accept_text = self.info_font.render("Accept", True, WHITE_COLOR)
+        decline_text = self.info_font.render("Decline", True, WHITE_COLOR)
+
+        self.screen.blit(accept_text, (accept_button.x + 30, accept_button.y + 10))
+        self.screen.blit(decline_text, (decline_button.x + 30, decline_button.y + 10))
+
+        return accept_button, decline_button
 
     def run(self):
         if not self.vs_ai:
@@ -315,6 +340,9 @@ class ChessGUI:
                 print("Lost connection to the server.")
                 break
 
+            draw_offer_turn = self.game_state.get("draw_offer")
+            is_our_turn_to_respond = draw_offer_turn is not None and draw_offer_turn != self.board.turn
+
             if self.vs_ai and self.game_state["turn"] == "black" and not self.game_state["is_game_over"]:
                 time.sleep(0.5)
 
@@ -322,14 +350,25 @@ class ChessGUI:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if not self.game_state["is_game_over"]:
+                    if self.game_state["is_game_over"]:
+                        continue
+                    if is_our_turn_to_respond:
+                        accept_button, decline_button = self.draw_draw_offer()
+                        if accept_button.collidepoint(event.pos):
+                            self.game_client.send_command("accept_draw")
+                        elif decline_button.collidepoint(event.pos):
+                            self.game_client.send_command("decline_draw")
+                    else:
                         self.handle_mouse_click(pygame.mouse.get_pos())
+
 
             self.draw_board()
             self.draw_highlights()
             self.draw_pieces()
             self.draw_game_info()
-            self.draw_evaluation_bar()
+
+            if is_our_turn_to_respond:
+                self.draw_draw_offer()
 
             if self.game_state["is_game_over"]:
                 result = self.game_state["result"]
@@ -342,7 +381,9 @@ class ChessGUI:
                     msg = f"Draw by {termination}!"
                 else:
                     msg = "Game Over"
-                self.draw_game_over(msg)
+
+                if not game_over_processed:
+                    self.draw_game_over(msg)
 
                 if not game_over_processed and not self.vs_ai and self.player1_username and self.player2_username:
                     if result == "1-0":

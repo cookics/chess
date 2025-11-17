@@ -69,6 +69,7 @@ class GameServer(socketserver.BaseRequestHandler):
     ai_opponent = None
     vs_ai = False
     lock = threading.Lock()
+    draw_offer = None
 
     def handle(self):
         while True:
@@ -86,6 +87,19 @@ class GameServer(socketserver.BaseRequestHandler):
                     elif command == "make_move":
                         move = request.get("move")
                         response = self.make_move(move)
+                    elif command == "resign":
+                        self.board.is_game_over(claim_draw=False)
+                        self.board.result = "0-1" if self.board.turn == chess.WHITE else "1-0"
+                        response = {"status": "ok"}
+                    elif command == "draw":
+                        self.draw_offer = self.board.turn
+                        response = {"status": "ok"}
+                    elif command == "accept_draw":
+                        self.board.is_game_over(claim_draw=True)
+                        response = {"status": "ok"}
+                    elif command == "decline_draw":
+                        self.draw_offer = None
+                        response = {"status": "ok"}
                     else:
                         response = {"status": "error", "message": "Invalid command"}
 
@@ -129,7 +143,8 @@ class GameServer(socketserver.BaseRequestHandler):
             "black_time": GameServer.timer.get_time_left(chess.BLACK),
             "evaluation": eval_data,
             "termination_reason": termination_reason,
-            "pgn": pgn
+            "pgn": pgn,
+            "draw_offer": self.draw_offer
         }
 
     def make_move(self, move_uci):
