@@ -118,7 +118,8 @@ class GameServer(socketserver.BaseRequestHandler):
 
         termination_reason = ""
         pgn = ""
-        if GameServer.board.is_game_over():
+        game_is_over = GameServer.board.is_game_over() or GameServer.board.result() != "*"
+        if game_is_over:
             if GameServer.board.is_checkmate():
                 termination_reason = "checkmate"
             elif GameServer.board.is_stalemate():
@@ -129,11 +130,11 @@ class GameServer(socketserver.BaseRequestHandler):
                 termination_reason = "75-move rule"
             elif GameServer.board.is_fivefold_repetition():
                 termination_reason = "fivefold repetition"
-            elif GameServer.board.result() == "1-0":
+            elif GameServer.board.result() == "1-0" and not termination_reason:
                 termination_reason = "resignation"
-            elif GameServer.board.result() == "0-1":
+            elif GameServer.board.result() == "0-1" and not termination_reason:
                 termination_reason = "resignation"
-            elif GameServer.board.result() == "1/2-1/2":
+            elif GameServer.board.result() == "1/2-1/2" and not termination_reason:
                 termination_reason = "agreement"
 
             GameServer.game.headers["Result"] = GameServer.board.result()
